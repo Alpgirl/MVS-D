@@ -1,0 +1,38 @@
+name: bnvmvs
+channels:
+  - defaults
+  - pytorch
+  - nvidia
+  - pyg
+  - xformers
+dependencies:
+  - pytorch=2.1.2
+  - torchaudio=2.1.2
+  - torchvision=0.16.2
+  - pytorch-lightning=2.3.0
+  - pytorch-cuda=11.8
+  - cudatoolkit=11.8
+  - pytorch-scatter=2.1.2
+  - numpy=1.20.1
+  - numba=0.56.4
+  - scikit-image
+  - scipy
+  - xformers
+  - pip:
+    - imageio==2.36.1
+    - trimesh==3.9.0
+    - kornia==0.7.4
+    - open3d==0.18.0
+    - rich==13.9.4
+    - einops
+    - easydict
+    - hydra-core
+    - omegaconf==2.1.1
+    - opencv_python==4.5.5.62
+    - Pillow==9.3.0
+    - plyfile==0.7.4
+    - PyYAML==6.0
+    - tensorboardX==2.5.1
+    - timm==0.3.2
+    - tqdm==4.59.0
+    - commentjson==0.9.0

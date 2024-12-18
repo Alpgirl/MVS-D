@@ -1,0 +1,18 @@
+## DOCKERFILE
+
+1. apt update && apt install libopencv-dev libgl1-mesa-dev
+
+2. conda env create -f mvs_env.yml  (bnvmvs environment)
+
+3. git clone tiny-cuda-nn
+4. git clone fusibile
+
+In case of problems opencv+numpy: pip install --upgrade --force-reinstall numpy opencv-python 
+
+
+## LAUNCH test.py MVSFormer++
+DTU:
+CUDA_VISIBLE_DEVICES=0 python test.py --dataset dtu --batch_size 1  --testpath ./data/dtu/   --testlist ./lists/dtu/test.txt --resume ./pretrained_models/model_best.pth --outdir ./out/   --interval_scale 1.06 --num_view 5 --numdepth 192 --max_h 1152 --max_w 1536 --filter_method gipuma --disp_threshold 0.1 --num_consistent 2 --prob_threshold 0.5
+
+Skoltech3D:
+create new file

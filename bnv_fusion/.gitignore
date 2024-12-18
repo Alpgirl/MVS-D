@@ -1,0 +1,15 @@
+/DeepSDF/
+/exps/
+/data/
+/src/investigate
+**/__pycache__
+/test_sdf/
+/logs/
+/.vscode/
+/test_*.py
+/render_visualization
+/render_out
+/animations
+/final_animations
+src/run_e2e_copy.py
+src/run_e2e.ipynb
