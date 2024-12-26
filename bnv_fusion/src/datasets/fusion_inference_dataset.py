@@ -4,7 +4,7 @@ import os
 import torch
 import trimesh
 import numpy as np
-from kornia.geometry.depth import depth_to_normals, depth_to_3d
+from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
 
 from src.datasets import register
 import src.utils.geometry as geometry
@@ -48,15 +48,17 @@ class FusionInferenceAbstractDataset(torch.utils.data.Dataset):
         depth, mask = self.read_depth(depth_path)
         if hasattr(self, "mask_paths"): #getattr(self, "mask_paths"):
             mask *= self.read_mask(self.mask_paths[idx])
-        mask = mask.astype(np.bool)
+        mask = mask.astype(np.bool_)
         normal = depth_to_normals(
             torch.from_numpy(depth).unsqueeze(0).unsqueeze(0),
             torch.from_numpy(intr_mat).unsqueeze(0)
         )[0].permute(1, 2, 0).numpy()
-        gt_xyz_map = depth_to_3d(
-            torch.from_numpy(depth).unsqueeze(0).unsqueeze(0),
-            torch.from_numpy(intr_mat).unsqueeze(0)
-        )[0].permute(1, 2, 0).numpy()
+
+        gt_xyz_map = depth_to_3d_v2(
+            torch.from_numpy(depth),
+            torch.from_numpy(intr_mat)
+        ).numpy()
+
         img_h, img_w = depth.shape
         gt_xyz_map_w = (T_cw @ geometry.get_homogeneous(gt_xyz_map.reshape(-1, 3)).T)[:3, :].T
         gt_xyz_map_w = gt_xyz_map_w.reshape(img_h, img_w, 3)
@@ -70,8 +72,8 @@ class FusionInferenceAbstractDataset(torch.utils.data.Dataset):
         input_pts = np.concatenate(
             [pts_w_frame, normal_w],
             axis=-1
-        )
-        input_pts = input_pts[mask.reshape(-1)]
+        ) # [1952*2368, 6]
+        input_pts = input_pts[mask.reshape(-1)] # [59698, 6]
         frame = {
             "depth_path": depth_path,
             "img_path": image_path,
@@ -364,7 +366,9 @@ class SkoltechInferenceDataset(FusionInferenceAbstractDataset):
             lines = f.readlines()
             lines = [line.rstrip() for line in lines]
         # extrinsics: line [1,5), 4x4 matrix
-        T_wc = np.fromstring(' '.join(lines[1:5]), dtype=np.float32, sep=' ').reshape((4, 4))
+        # in sk3d initially stored world-to-camera params
+        T_wc = np.fromstring(' '.join(lines[1:5]), dtype=np.float32, sep=' ').reshape((4, 4)) 
+        # convert camera params tp camera-to-world
         T_cw = np.linalg.inv(T_wc)
         return T_cw
     
@@ -442,7 +446,7 @@ class IterableInferenceDataset(torch.utils.data.Dataset):
             max_depth=self.ray_max_dist)
         if "mask_path" in meta_frame:
             frame_mask *= self.read_mask(meta_frame['mask_path'])
-        frame_mask = frame_mask.astype(np.bool)
+        frame_mask = frame_mask.astype(np.bool_)
         rgb = np.zeros((3, depth.shape[0], depth.shape[1]))
         rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
         pts_c = geometry.depth2xyz(

@@ -89,7 +89,7 @@ class LitFusionPointNet(pl.LightningModule):
         bound_max,
         voxel_size,
         return_dense=True
-    ):
+        ):
         res_x, res_y, res_z = [int(v) for v in n_xyz]
         in_xyz = input_pts[:, :, :3] * 1.
         in_normal = input_pts[:, :, 3:]
@@ -106,53 +106,37 @@ class LitFusionPointNet(pl.LightningModule):
         in_xyz = in_xyz[:, bound_mask, :]
         in_normal = in_normal[:, bound_mask, :]
 
-        # DEBUG: pcd for in_xyz
-        # in_xyz_ = in_xyz.detach().cpu()[0]
-        # print("in_xyz: shape, dtype", in_xyz_.shape, in_xyz_.dtype)
-
-        # mesh = trimesh.Trimesh(vertices=in_xyz_) #, faces=trimesh.convex.convex_hull(input_pts).faces)
-        # mesh.vertex_normals = in_normals
-        # output_path = os.path.join("/app/bnv_fusion/logs/mesh/", "mesh_encode_pcd.ply")
-        # mesh.export(output_path)
-        # print(f"Mesh exported successfully to {output_path}")
-
+        # transform xyz to the local coordinates with respect to each neighboring pixel, grid_id - indexes of neighboring points
         relative_xyz, grid_id = self.get_relative_xyz(in_xyz, bound_min, voxel_size)
-        
-        # DEBUG: pcd for relative_xyz
-        # relative_xyz_ = relative_xyz.detach().cpu().numpy().reshape(-1,3)
-        # print("relative_xyz: shape, dtype", relative_xyz_.shape, relative_xyz_.dtype)
-        
-        # mesh = trimesh.Trimesh(vertices=relative_xyz_) #, faces=trimesh.convex.convex_hull(input_pts).faces)
-        # # mesh.vertex_normals = in_normals
-        # output_path = os.path.join("/app/bnv_fusion/logs/mesh/", "mesh_relative.ply")
-        # mesh.export(output_path)
-        # print(f"Mesh exported successfully to {output_path}")
 
         grid_id = grid_id.reshape(1, -1, 3)  # [1, N, 3]
         pointnet_input = torch.cat(
             [relative_xyz, in_normal.unsqueeze(1).repeat(1, 8, 1, 1)],
             dim=-1
         )  # [1, N, 6]
+
+        # Extract PointNet features
         pointnet_input = pointnet_input.reshape(1, -1, 6)  # [1, N, 6]
-        # print("pointnet_input", pointnet_input.shape)
-        point_feats = self(pointnet_input, normalize=True, voxel_size=voxel_size, global_feats=False)
-        # print("point_feats", point_feats.shape)
+        point_feats = self(pointnet_input, normalize=True, voxel_size=voxel_size, global_feats=False) # [batch size, feature dim, N]
         # point_feats = self.pointnet_backbone(
         #     pointnet_input, False)  # [1, F, N]
         flat_ids = voxel_utils.flatten(
             grid_id, n_xyz).long()  # [1, N]
+        
+        # torch unique returns a tuple (output tensor, 
+        # if return_reverse=True mapping indices between input and output, if return_counts=True number of occurrences)
         unique_flat_ids, pinds, pcounts = torch.unique(
             flat_ids[0], return_inverse=True, return_counts=True)
         unique_grid_ids = voxel_utils.unflatten(unique_flat_ids, n_xyz).long()
+
         assert torch.max(unique_grid_ids[:, 0]) < res_x
         assert torch.max(unique_grid_ids[:, 1]) < res_y
         assert torch.max(unique_grid_ids[:, 2]) < res_z
         assert torch.min(unique_grid_ids) >= 0
-        print("DEBUG!")
-        print(point_feats.shape, pinds.shape)
-        print(point_feats, pinds)
+
         point_feats_mean = scatter_mean(point_feats, pinds.unsqueeze(0).unsqueeze(0))
         point_feats_mean[:, :, pcounts<self.min_pts_in_grid] = 0
+
         if return_dense: # False
             feat_grids = torch.zeros(
                 (1, self.feat_dims, res_x, res_y, res_z),
@@ -169,6 +153,7 @@ class LitFusionPointNet(pl.LightningModule):
             feat_grids[0, :, unique_grid_ids[:, 0], unique_grid_ids[:, 1], unique_grid_ids[:, 2]] = point_feats_mean
             return feat_grids, mask, unique_flat_ids, flat_ids
         else:
+            # take only points which pcounts is more than min_pts_in_grid (number of neighbours)
             n_avg_pts = torch.mean(pcounts.type(point_feats.type()))
             valid_mask = pcounts >= self.min_pts_in_grid
             point_feats_mean = point_feats_mean[:, :, valid_mask]
@@ -177,7 +162,6 @@ class LitFusionPointNet(pl.LightningModule):
             unique_grid_ids = voxel_utils.unflatten(unique_flat_ids, n_xyz).long()
             pcounts = pcounts.unsqueeze(-1)
             point_feats_mean = point_feats_mean[0].permute(1, 0)
-            # print("point_feats_mean", point_feats_mean.shape)
             return point_feats_mean, pcounts, unique_flat_ids, unique_grid_ids, n_avg_pts
 
     def get_relative_xyz(
@@ -185,7 +169,7 @@ class LitFusionPointNet(pl.LightningModule):
         xyz,  # [B, N, 3]
         bound_min,
         voxel_size
-    ):
+        ):
         xyz_zeroed = xyz - bound_min
         xyz_normalized = xyz_zeroed / voxel_size
         grid_id = self.nerf.get_neighbors(
@@ -203,7 +187,7 @@ class LitFusionPointNet(pl.LightningModule):
         bound_min,
         step_size=0.25,
         split_voxel_size=50
-    ):
+        ):
         # surface_pts = self.prune_pts(surface_pts, min_coords, max_coords, volume_resolution)
         # usee the finest level
         n_xyz = n_xyz
@@ -296,7 +280,7 @@ class LitFusionPointNet(pl.LightningModule):
         self, voxel_coords, feat_grid, pts_weight,
         voxel_size, bound_min,
         gradient=False, global_coords=True
-    ):
+        ):
         """ get sdf values ath the coords in the feature_grid.
 
         Args:
@@ -686,10 +670,14 @@ class LitFusionPointNet(pl.LightningModule):
         fine_coords,
         fine_feats,
         fine_weights
-    ):
+        ):
+
         fine_weights = torch.clip(fine_weights / 32, max=1)
+        # add the bufs and masks from o3c to tensors
         model_feats, model_weights, model_num_hits = volume_object.query(fine_coords)
+
         if len(fine_coords) > 0:
+            # local level fusion, new_fine_feats are to be fused into the global implicit volume (comp. 3,4 from paper)
             new_fine_feats, new_fine_weights = self._update(
                 fine_feats, fine_weights, model_feats, model_weights)
         else:
@@ -711,7 +699,7 @@ class LitFusionPointNet(pl.LightningModule):
         surface_coords,
         surface_feats,
         surface_weights
-    ):
+        ):
         n_feats = surface_feats.shape[-1]
         flat_empty_keys = empty_coords[:, 0] * n_xyz[1] * n_xyz[2] + empty_coords[:, 1] * n_xyz[2] + empty_coords[:, 2]
         flat_empty_keys = flat_empty_keys.unsqueeze(-1)

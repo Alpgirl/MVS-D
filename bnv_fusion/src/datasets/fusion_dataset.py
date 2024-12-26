@@ -5,7 +5,7 @@ import trimesh
 import numpy as np
 import pickle
 from scipy.ndimage.morphology import binary_dilation
-from kornia.geometry.depth import depth_to_normals, depth_to_3d
+from kornia.geometry.depth import depth_to_normals
 
 from src.utils.common import load_rgb, load_depth
 from src.datasets import register

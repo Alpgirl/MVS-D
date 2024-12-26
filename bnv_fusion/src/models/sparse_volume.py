@@ -528,7 +528,7 @@ class SparseVolume:
         """
 
         active_buf_indices = self.indexer.active_buf_indices().to(o3c.int64)
-        print("active_buf_indices", len(active_buf_indices))
+        # print("active_buf_indices", len(active_buf_indices))
         capacity = len(active_buf_indices)
         self.tensor_indexer = o3c.HashMap(
             capacity,
@@ -719,24 +719,25 @@ class SparseVolume:
         for i in range(0, len(self.active_coordinates), batch_size):
             origin = active_coords[i: i + batch_size]
             n_batches = len(origin)
-            range_ = np.arange(0, 1+step_size, step_size) - 0.5
+            range_ = np.arange(0, 1+step_size, step_size) - 0.5 # [-step_size; step_size]
             spacing = [range_[1] - range_[0]] * 3
             voxel_coords = np.stack(
                 np.meshgrid(range_, range_, range_, indexing="ij"),
                 axis=-1
-            )
+            ) # shape: [3, 3, 3, 3]
             voxel_coords = np.tile(voxel_coords, (n_batches, 1, 1, 1, 1))
             voxel_coords += origin[:, None, None, None, :]
             voxel_coords = torch.from_numpy(
                 voxel_coords).float().to(self.device)
             H, W, D = voxel_coords.shape[1:4]
-            voxel_coords = voxel_coords.reshape(1, n_batches, -1, 3)
+            voxel_coords = voxel_coords.reshape(1, n_batches, -1, 3) # [1, n_batches, 27, 3]
             out = self.decode_pts(
                 voxel_coords,
                 nerf,
                 sdf_delta,
                 is_coords=True
-            )
+            ) # [1, 500, 27, 1]
+
             sdf = out[0, :, :, 0].reshape(n_batches, H, W, D)
             sdf = sdf.detach().cpu().numpy()
             for j in range(n_batches):
@@ -776,7 +777,7 @@ class SparseVolume:
         sdf_delta=None,
         is_coords=False,
         query_tensor=True,
-    ):
+        ):
         """ decode sdf values from the implicit volume given coords.
 
         Args:
@@ -806,7 +807,7 @@ class SparseVolume:
         )
 
         # get features from coords
-        if query_tensor:
+        if query_tensor: # True
             feats, weights, num_hits = self._query_tensor(neighbor_coords)
         else:
             feats, weights, num_hits = self.query(neighbor_coords)

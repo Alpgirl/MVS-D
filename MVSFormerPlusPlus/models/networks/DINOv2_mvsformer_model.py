@@ -67,26 +67,31 @@ class DINOv2MVSNet(nn.Module):
 
     def forward(self, imgs, proj_matrices, depth_values, tmp=[5., 5., 5., 1.]):
         B, V, H, W = imgs.shape[0], imgs.shape[1], imgs.shape[3], imgs.shape[4]
-        depth_interval = depth_values[:, 1] - depth_values[:, 0]
+        depth_interval = depth_values[:, 1] - depth_values[:, 0] # 0.002
+        
         # dinov2 patchsize=14,  0.5 * 14/16
-        vit_h, vit_w = int(H * self.vit_args['rescale'] // 14 * 14), int(W * self.vit_args['rescale'] // 14 * 14)
+        vit_h, vit_w = int(H * self.vit_args['rescale'] // 14 * 14), int(W * self.vit_args['rescale'] // 14 * 14) # 602, 700
 
         # feature encode
-        if not self.training:
+        if not self.training: # None
+            # resize the images to a specified size, output: [V, 3, vit_h, vit_w]
             vit_imgs = F.interpolate(imgs.reshape(B * V, 3, H, W), (vit_h, vit_w), mode='bicubic',
                                      align_corners=Align_Corners_Range)
-            vit_feat = self.vit_forward(vit_imgs, B, V, vit_h, vit_w)
-            conv31_h, conv31_w = H // 8, W // 8
+            vit_feat = self.vit_forward(vit_imgs, B, V, vit_h, vit_w) # [V, 64, 172, 200]
+
+            conv31_h, conv31_w = H // 8, W // 8 # 172, 200
             if vit_feat.shape[2] != conv31_h or vit_feat.shape[3] != conv31_w:
                 vit_feat = F.interpolate(vit_feat, size=(conv31_h, conv31_w), mode='bilinear',
                                          align_corners=Align_Corners_Range)
 
             feat1s, feat2s, feat3s, feat4s = [], [], [], []
+            # for e
             for vi in range(V):
                 img_v = imgs[:, vi]
-                conv01, conv11, conv21, conv31 = self.encoder(img_v)
+                # extract features for the image using Feature Pyramid Network (FPN)
+                conv01, conv11, conv21, conv31 = self.encoder(img_v) # [B, 8, 1376, 1600], [B, 16, 688, 800], [B, 32, 344, 400], [B, 64, 172, 200]
                 conv31 = conv31 + vit_feat[vi].unsqueeze(0)
-                feat1, feat2, feat3, feat4 = self.decoder.forward(conv01, conv11, conv21, conv31)
+                feat1, feat2, feat3, feat4 = self.decoder.forward(conv01, conv11, conv21, conv31) # [B, 64, 172, 200],..., [B, 8, 1376, 1600]
                 feat1s.append(feat1)
                 feat2s.append(feat2)
                 feat3s.append(feat3)
@@ -95,7 +100,7 @@ class DINOv2MVSNet(nn.Module):
             features = {'stage1': torch.stack(feat1s, dim=1),
                         'stage2': torch.stack(feat2s, dim=1),
                         'stage3': torch.stack(feat3s, dim=1),
-                        'stage4': torch.stack(feat4s, dim=1)}
+                        'stage4': torch.stack(feat4s, dim=1)} # stage1: [1, 10, 64, 172, 200]
 
         else:
             imgs = imgs.reshape(B * V, 3, H, W)
@@ -114,8 +119,8 @@ class DINOv2MVSNet(nn.Module):
                         'stage2': feat2.reshape(B, V, feat2.shape[1], feat2.shape[2], feat2.shape[3]),
                         'stage3': feat3.reshape(B, V, feat3.shape[1], feat3.shape[2], feat3.shape[3]),
                         'stage4': feat4.reshape(B, V, feat4.shape[1], feat4.shape[2], feat4.shape[3])}
-        features = self.FMT_module.forward(features)
 
+        features = self.FMT_module.forward(features)
 
         outputs = {}
         outputs_stage = {}
@@ -130,14 +135,14 @@ class DINOv2MVSNet(nn.Module):
             B, V, C, H, W = features_stage.shape
             # init range
             if stage_idx == 0:
-                if self.inverse_depth:
+                if self.inverse_depth: # true
                     depth_samples = init_inverse_range(depth_values, self.ndepths[stage_idx], imgs.device, imgs.dtype,
                                                        H, W)
                 else:
                     depth_samples = init_range(depth_values, self.ndepths[stage_idx], imgs.device,
                                                              imgs.dtype, H, W)
             else:
-                if self.inverse_depth:
+                if self.inverse_depth: # true
                     depth_samples = schedule_inverse_range(outputs_stage['depth'].detach(),
                                                                outputs_stage['depth_values'],
                                                                self.ndepths[stage_idx],
@@ -175,5 +180,4 @@ class DINOv2MVSNet(nn.Module):
         outputs['refined_depth'] = outputs_stage['depth']
         if valid_count > 0:
             outputs['photometric_confidence'] = prob_maps / valid_count
-
         return outputs

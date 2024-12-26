@@ -72,12 +72,13 @@ def homo_warping_3D_with_mask(src_fea, src_proj, ref_proj, depth_values):
     # ref_proj: [B, 4, 4]
     # depth_values: [B, Ndepth] o [B, Ndepth, H, W]
     # out: [B, C, Ndepth, H, W]
-    batch, channels = src_fea.shape[0], src_fea.shape[1]
-    num_depth = depth_values.shape[1]
+
+    batch, channels = src_fea.shape[0], src_fea.shape[1] # _, {64, 32, 16, 8}
+    num_depth = depth_values.shape[1] # {32, 16, 8, 4}
     height, width = src_fea.shape[2], src_fea.shape[3]
 
     with torch.no_grad():
-        proj = torch.matmul(src_proj, torch.inverse(ref_proj))
+        proj = torch.matmul(src_proj, torch.inverse(ref_proj)) # [1,4,4] @ [1,4,4]
         rot = proj[:, :3, :3]  # [B,3,3]
         trans = proj[:, :3, 3:4]  # [B,3,1]
 

@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import pickle
 import trimesh
-from kornia.geometry.depth import depth_to_normals, depth_to_3d
+from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
 
 from src.datasets import register
 import src.utils.geometry as geometry
@@ -85,10 +85,10 @@ class FusionPointNetDataset(torch.utils.data.Dataset):
                 torch.from_numpy(intr_mat).unsqueeze(0)
             )[0].permute(1, 2, 0).numpy()
 
-            gt_xyz_map = depth_to_3d(
-                torch.from_numpy(gt_depth).unsqueeze(0).unsqueeze(0),
-                torch.from_numpy(intr_mat).unsqueeze(0)
-            )[0].permute(1, 2, 0).numpy()
+            gt_xyz_map = depth_to_3d_v2(
+                torch.from_numpy(gt_depth),
+                torch.from_numpy(intr_mat)
+            ).numpy()
 
             gt_pts_c = gt_xyz_map.reshape(-1, 3)[mask]
             gt_pts_c[:, 2] *= -1

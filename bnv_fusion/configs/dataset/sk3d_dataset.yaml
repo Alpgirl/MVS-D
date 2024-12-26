@@ -1,7 +1,7 @@
 # data_dir: ${data_dir}  # data_dir is specified in config.yaml
 data_dir: "/sk3d/dataset/white_fox_figurine/tis_right/rgb/undistorted/ambient@best"
 cam_params: "/sk3d/addons/white_fox_figurine/tis_right/rgb/mvsnet_input"
-depth_dir: "/sk3d/addons/white_fox_figurine/proj_depth/kinect_v2.undist@tis_right.undist"
+depth_dir: "/sk3d/addons/white_fox_figurine/proj_depth/stl.clean_rec.aa@tis_right.undist"
 gt_mesh: "/sk3d/dataset/white_fox_figurine/stl/reconstruction/cleaned.ply"
 subdomain: "fusion"
 

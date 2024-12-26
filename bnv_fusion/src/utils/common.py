@@ -1,5 +1,5 @@
 import cv2
-import imageio
+import imageio.v2 as imageio
 import numpy as np
 import os
 import os.path as osp

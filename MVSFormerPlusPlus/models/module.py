@@ -690,11 +690,11 @@ def init_range(cur_depth, ndepths, device, dtype, H, W):
 
 
 def init_inverse_range(cur_depth, ndepths, device, dtype, H, W):
-    if len(cur_depth.shape) == 2:
+    if len(cur_depth.shape) == 2: # len((1,256)) = 2
         inverse_depth_min = 1. / cur_depth[:, 0]  # (B,)
-        inverse_depth_max = 1. / cur_depth[:, -1]
+        inverse_depth_max = 1. / cur_depth[:, -1] 
         itv = torch.arange(0, ndepths, device=device, dtype=dtype, requires_grad=False).reshape(1, -1, 1, 1).repeat(1, 1, H, W) / (ndepths - 1)  # 1 D H W
-        inverse_depth_hypo = inverse_depth_max[:, None, None, None] + (inverse_depth_min - inverse_depth_max)[:, None, None, None] * itv
+        inverse_depth_hypo = inverse_depth_max[:, None, None, None] + (inverse_depth_min - inverse_depth_max)[:, None, None, None] * itv # [B, 1, 1, 1] + scaled difference between inverse depth min and max
     else:
         inverse_depth_min = 1. / cur_depth[..., 0]  # (B,H,W)
         inverse_depth_max = 1. / cur_depth[..., -1]

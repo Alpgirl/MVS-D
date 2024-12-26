@@ -184,7 +184,7 @@ def rm_data(testlist, outdir):
 def save_depth(testlist, config):
     # dataset, dataloader
     stage3 = config['data_loader'][0]['args'].get('stage3', False)
-
+    
     init_kwags = {
         "data_path": args.testpath,
         "data_list": testlist,
@@ -202,7 +202,7 @@ def save_depth(testlist, config):
         "num_workers": 0,
         "stage3": stage3,
     }
-    
+
     # test_data_loader = module_data.DTULoader(**init_kwags)
     cfg_dataloader = config['data_loader'][0]["type"]
 
@@ -250,9 +250,9 @@ def save_depth(testlist, config):
             sample_cuda = tocuda(sample)
             num_stage = 3 if stage3 else 4
             imgs, cam_params = sample_cuda["imgs"], sample_cuda["proj_matrices"]
-            if args.dataset == 'dtu':
-                depth_gt = sample_cuda["depth"]["stage4"]
-                mask = sample_cuda["mask"]["stage4"]
+            # if args.dataset == 'dtu':
+            #     depth_gt = sample_cuda["depth"]["stage4"]
+            #     mask = sample_cuda["mask"]["stage4"]
             B, V, _, H, W = imgs.shape
             depth_interval = sample_cuda['depth_values'][:, 1] - sample_cuda['depth_values'][:, 0]
             filenames = sample["filename"]
@@ -269,6 +269,8 @@ def save_depth(testlist, config):
             cams = sample["proj_matrices"]["stage{}".format(num_stage)].numpy()
             print('Iter {}/{}, Time:{} Res:{}'.format(batch_idx, len(test_data_loader), end_time - start_time,
                                                       outputs["refined_depth"][0].shape))
+            # DEBUG for COST VOLUME
+            break
            
             # save depth maps and confidence maps
             idx = 0
@@ -562,18 +564,18 @@ if __name__ == '__main__':
     save_depth(testlist, config)
 
     # step2. filter saved depth maps with photometric confidence maps and geometric constraints
-    if args.filter_method == "pcd" or args.filter_method == "dpcd":
-        # support multi-processing, the default number of worker is 4
-        pcd_filter(testlist)
+    # if args.filter_method == "pcd" or args.filter_method == "dpcd":
+    #     # support multi-processing, the default number of worker is 4
+    #     pcd_filter(testlist)
     
-    elif args.filter_method == 'gipuma':
-        prob_threshold = args.prob_threshold
-        # prob_threshold = [float(p) for p in prob_threshold.split(',')]
-        gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
-                      args.fusibile_exe_path)
-    else:
-        raise NotImplementedError
+    # elif args.filter_method == 'gipuma':
+    #     prob_threshold = args.prob_threshold
+    #     # prob_threshold = [float(p) for p in prob_threshold.split(',')]
+    #     gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
+    #                   args.fusibile_exe_path)
+    # else:
+    #     raise NotImplementedError
 
-    if args.filter_method == 'gipuma':
-        # remove some unneeded data
-        rm_data(testlist, args.outdir)
+    # if args.filter_method == 'gipuma':
+    #     # remove some unneeded data
+    #     rm_data(testlist, args.outdir)

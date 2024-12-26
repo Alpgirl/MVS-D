@@ -311,6 +311,46 @@ def local_pcd(depth, intr):
     return p3d
 
 
+def global_pcd_batch(depth_values, ref_proj):
+    """
+    input:
+        depth_values: torch.tensor([B,D,H,W]), depths hypothesis
+        ref_proj: torch.tensor([1,2,4,4]), camera extrinsics (0, dim=1) and camera intrinsics (1, dim=1)
+    
+    return: 3d points in wolrd space (N, 3)
+    """
+    
+    _, b, h, w = depth_values.shape
+    n_points = h * w
+
+    # generate frame meshgrid
+    xx, yy = torch.meshgrid([torch.arange(h, dtype=torch.float), torch.arange(w, dtype=torch.float)])
+
+    # flatten grid coordinates and bring them to batch size
+    xx = xx.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values) # [32, 34400, 1]
+    yy = yy.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values)
+    zz = depth_values.contiguous().view(b, h * w, 1)
+
+    points = torch.cat([yy, xx, zz], axis=2).clone() # [32, 34400, 3]
+    
+    intr_inv_ref = ref_proj[0, 1, :3, :3].inverse()
+
+    homgens = torch.ones((b, 1, n_points)).to(depth_values)
+    
+    points[:, :, 0] *= zz[:, :, 0]
+    points[:, :, 1] *= zz[:, :, 0]
+
+    points_c = torch.matmul(intr_inv_ref, torch.transpose(points, dim0=1, dim1=2)) # [32, 3, 34400]
+    points_c = torch.cat((points_c, homgens), dim=1)  # [32, 4, 34400]
+
+    extr = ref_proj[0, 0, :3, :4]
+    points_w = torch.matmul(extr, points_c) # [32, 3, 34400]
+    points_w = torch.transpose(points_w, dim0=1, dim1=2)[...,:3] # [32, 34400, 3]
+
+    points = points_w.reshape(-1,3).to(depth_values)
+    return points
+
+
 def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):
     """
     Generate a colored point cloud in PLY format from a color and a depth image.

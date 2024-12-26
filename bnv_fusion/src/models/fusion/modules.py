@@ -156,6 +156,8 @@ class tcnnNeRFModel(torch.nn.Module):
         self.interpolate_decode = interpolate_decode
         self.global_coords = global_coords
         dims = [self.dim_xyz + feat_dims] + [hidden_size] * num_layers
+
+        # get positional encoding for the tensor
         self.xyz_encoding = get_embedding_function(
             num_encoding_functions=num_encoding_fn_xyz,
             include_input=True,

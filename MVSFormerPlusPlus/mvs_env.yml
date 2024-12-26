@@ -5,6 +5,7 @@ channels:
   - nvidia
   - pyg
   - xformers
+  - conda-forge
 dependencies:
   - pytorch=2.1.2
   - torchaudio=2.1.2
@@ -18,6 +19,7 @@ dependencies:
   - scikit-image
   - scipy
   - xformers
+  - pycuda
   - pip:
     - imageio==2.36.1
     - trimesh==3.9.0

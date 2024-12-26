@@ -3,6 +3,9 @@ from models.warping import homo_warping_3D_with_mask
 from models.module import *
 # from models.swin.block import SwinTransformerCostReg
 import torch.utils.checkpoint as cp
+import trimesh
+import os
+from utils import global_pcd_batch
 
 class identity_with(object):
     def __init__(self, enabled=True):
@@ -50,13 +53,13 @@ class StageNet(nn.Module):
 
     def forward(self, features, proj_matrices, depth_values, tmp, position3d=None):
         ref_feat = features[:, 0]
-        src_feats = features[:, 1:]
-        src_feats = torch.unbind(src_feats, dim=1)
+        src_feats = features[:, 1:] # [1, V-1, 64, 172, 200]
+        src_feats = torch.unbind(src_feats, dim=1) # tuple of [1, 64, 172, 200], len=9
         proj_matrices = torch.unbind(proj_matrices, 1)
         assert len(src_feats) == len(proj_matrices) - 1, "Different number of images and projection matrices"
 
         # step 1. feature extraction
-        ref_proj, src_projs = proj_matrices[0], proj_matrices[1:]
+        ref_proj, src_projs = proj_matrices[0], proj_matrices[1:] # ([1, 2, 4, 4]), ([1, 2, 4, 4],...)-> 9
         # step 2. differentiable homograph, build cost volume
         volume_sum = 0.0
         vis_sum = 0.0
@@ -64,12 +67,12 @@ class StageNet(nn.Module):
         with autocast(enabled=False):
             for src_feat, src_proj in zip(src_feats, src_projs):
                 # warpped features
-                src_feat = src_feat.to(torch.float32)
-                src_proj_new = src_proj[:, 0].clone()
-                src_proj_new[:, :3, :4] = torch.matmul(src_proj[:, 1, :3, :3], src_proj[:, 0, :3, :4])
+                src_feat = src_feat.to(torch.float32) 
+                src_proj_new = src_proj[:, 0].clone() # returns a copy of input
+                src_proj_new[:, :3, :4] = torch.matmul(src_proj[:, 1, :3, :3], src_proj[:, 0, :3, :4]) # [B, 3, 3] @ [B, 3, 4]
                 ref_proj_new = ref_proj[:, 0].clone()
                 ref_proj_new[:, :3, :4] = torch.matmul(ref_proj[:, 1, :3, :3], ref_proj[:, 0, :3, :4])
-                warped_volume, proj_mask = homo_warping_3D_with_mask(src_feat, src_proj_new, ref_proj_new, depth_values)
+                warped_volume, proj_mask = homo_warping_3D_with_mask(src_feat, src_proj_new, ref_proj_new, depth_values) # [1, 64, D, H, W], [1, D, H, W]
 
                 B, C, D, H, W = warped_volume.shape
                 G = self.args['base_ch']
@@ -94,13 +97,27 @@ class StageNet(nn.Module):
                 else:
                     raise NotImplementedError
 
-                volume_sum = volume_sum + in_prod_vol * vis_weight.unsqueeze(1)
+                volume_sum = volume_sum + in_prod_vol * vis_weight.unsqueeze(1) # [1, 8, D, 172, 200] + [1, 8, D, 172, 200] * [1, 172, 200]
                 vis_sum = vis_sum + vis_weight
 
             # aggregate multiple feature volumes by variance
             volume_mean = volume_sum / (vis_sum.unsqueeze(1) + 1e-6)  # volume_sum / (num_views - 1)
 
-        cost_reg = self.cost_reg(volume_mean, position3d)
+        # VISUALIZE COST VOLUME
+        ## DEBUG
+        # convert cost volume to pcd3d
+        points = global_pcd_batch(depth_values, ref_proj)
+
+        mesh = trimesh.Trimesh(vertices=points.detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # mesh.vertex_normals = normals
+        output_path = os.path.join(os.getcwd(), "act_coord.ply")
+        mesh.export(output_path)
+        print(f"Mesh exported successfully to {output_path}")
+
+        raise
+        ## DEBUG
+
+        cost_reg = self.cost_reg(volume_mean, position3d) # [1, 1, D, 172, 200]
 
         prob_volume_pre = cost_reg.squeeze(1)
         prob_volume = F.softmax(prob_volume_pre, dim=1)

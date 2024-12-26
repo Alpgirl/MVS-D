@@ -8,6 +8,7 @@ import time
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from pytorch_lightning import seed_everything
+import trimesh
 
 from src.datasets import datasets
 from src.datasets.fusion_inference_dataset import IterableInferenceDataset
@@ -80,11 +81,9 @@ class NeuralMap:
             return None
         with torch.no_grad():
             # local-level fusion
-            # print("frame['input_pts']: ", frame['input_pts'])
-            # print("n_xyz: ", self.volume.n_xyz)
-            # print("min_coords: ", self.volume.min_coords)
-            # print("max_coords: ", self.volume.max_coords)
-            # print("voxel_size: ", self.volume.voxel_size)
+
+            # extract features and neighbours for each point
+            # [n_pts, feat dim], [n_pts, 1], _, [n_pts, 3], n 
             fine_feats, fine_weights, _, fine_coords, fine_n_pts = self.pointnet.encode_pointcloud(
                 frame['input_pts'],  # [1, N, 6]
                 self.volume.n_xyz,
@@ -93,11 +92,10 @@ class NeuralMap:
                 self.volume.voxel_size,
                 return_dense=self.pointnet.dense_volume
             )
-            # print("fine coords:", fine_coords)
-            # print("fine_n_pts:", fine_n_pts)
-            # print("fine_feats", fine_feats.shape)
+
             if fine_feats is None:
                 return None
+
             self.volume.track_n_pts(fine_n_pts)
             self.pointnet._integrate(
                 self.volume,
@@ -105,11 +103,10 @@ class NeuralMap:
                 fine_feats,
                 fine_weights)
             # tsdf fusion
-            rgbd = frame['rgbd'].cpu().numpy()
+            rgbd = frame['rgbd'].cpu().numpy() # [1, 4, 1952, 2368]
             depth_map = rgbd[0, -1, :, :]
             rgb = (rgbd[0, :3, :, :].transpose(1, 2, 0) + 0.5) * 255.
             # depth_map = rgbd[0, 3, :, :]
-            # print(rgb.shape, depth_map.shape, frame['intr_mat'].shape, frame['T_wc'].shape)
             self.tsdf_vol.integrate(
                 rgb,  # [h, w, 3], [0, 255]
                 depth_map,  # [h, w], metric depth
@@ -277,7 +274,10 @@ def main(config: DictConfig):
         # clear memory for open3d hashmap
         if (idx+1) % 2 == 0:
             torch.cuda.empty_cache()
-        # break
+
+        # if idx == 4:
+            # break
+
         # if config.model.mode == "demo":
         #     if (idx) % config.model.optim_interval == 0:
         #         last_frame = max(0, len(neural_map.frames) - config.model.optim_interval)
@@ -289,8 +289,18 @@ def main(config: DictConfig):
         #         mesh = o3d_helper.post_process_mesh(mesh)
         #         mesh_out_path = os.path.join(neural_map.working_dir, f"{idx}.ply")
         #         mesh.export(mesh_out_path)
-    # neural_map.volume.to_tensor()
-    # mesh = neural_map.extract_mesh()
+    active_coordinates, features, weights, num_hits = neural_map.volume.to_tensor()
+    print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
+    print(torch.min(active_coordinates), torch.max(active_coordinates))
+
+    active_coordinates_rescaled = active_coordinates * config.model.voxel_size + neural_map.volume.min_coords
+
+    # mesh = trimesh.Trimesh(vertices=active_coordinates_rescaled.detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+    # # mesh.vertex_normals = normals
+    # output_path = os.path.join(os.getcwd(), "act_coord.ply")
+    # mesh.export(output_path)
+    # print(f"Mesh exported successfully to {output_path}")
+    mesh = neural_map.extract_mesh()
     # mesh.export(os.path.join(neural_map.working_dir, "before_optim.ply"))
     # global_steps = int(len(neural_map.frames) * neural_map.skip_images)
     # global_steps = global_steps * 2 if config.model.mode != "demo" else global_steps
