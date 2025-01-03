@@ -85,7 +85,7 @@ class Sk3DLoader(DataLoader):
         drop_last = mode == 'train'
         super().__init__(self.mvs_dataset, batch_size=batch_size, shuffle=shuffle,
                          num_workers=num_workers, pin_memory=True, drop_last=drop_last)
-
+    
         self.n_samples = len(self.mvs_dataset)
 
     def get_num_samples(self):

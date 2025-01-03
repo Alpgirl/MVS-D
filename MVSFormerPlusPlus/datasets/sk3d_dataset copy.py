@@ -8,12 +8,6 @@ from torch.utils.data import Dataset
 
 from datasets.data_io import *
 
-# bnv-fusion
-from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
-
-import bnv_fusion.src.utils.geometry as geometry
-# from bnv_fusion.src.datasets.fusion_inference_dataset import SkoltechInferenceDataset
-
 from .color_jittor import ColorJitter
 
 s_h, s_w = 0, 0
@@ -142,8 +136,8 @@ class Sk3DDataset(Dataset):
         else:
             self.random_crop = random_crop
 
-        self.rgbd = kwargs.get('rgbd', False)
-        self.sensor_depth_resize = kwargs.get('sensor_depth_resize', self.resize) # this is resize for NeuralFusion expected input size
+        # self.rgbd = kwargs.get('rgbd', False)
+        # self.sensor_depth_resize = kwargs.get('sensor_depth_resize', self.resize) # this is resize for NeuralFusion expected input size
 
         # self.multi_scale = kwargs.get('multi_scale', False)
         # self.multi_scale_args = kwargs['multi_scale_args']
@@ -328,7 +322,6 @@ class Sk3DDataset(Dataset):
         depth = unpack_float32(np.asarray(Image.open(filename))).copy()
         depth = torch.FloatTensor(depth)
 
-        ## CROP that fits every scene
         if self.mode == 'train' or self.mode == 'val':
             crop_h_start, crop_h_end, crop_w_start, crop_w_end = [601, 1952, 291, 1887]
         else:
@@ -370,50 +363,6 @@ class Sk3DDataset(Dataset):
             return depth, mask, intrinsics
         else:
             return depth, mask
-        
-
-    def bnv_sensor_depth_item(self, depth, rgb, mask, T_cw, intr_mat):
-        # mask = mask.astype(np.bool_)
-        normal = depth_to_normals(
-            torch.unsqueeze(torch.unsqueeze(depth, 0), 0),
-            torch.unsqueeze(torch.from_numpy(intr_mat), 0)
-        )[0].permute(1, 2, 0).numpy()
-
-        gt_xyz_map = depth_to_3d_v2(
-            depth,
-            intr_mat
-        ).numpy()
-
-        img_h, img_w = depth.shape
-        gt_xyz_map_w = (T_cw @ geometry.get_homogeneous(gt_xyz_map.reshape(-1, 3)).T)[:3, :].T
-        gt_xyz_map_w = gt_xyz_map_w.reshape(img_h, img_w, 3)
-
-        # NOTE: VERY IMPORTANT TO * -1 for normal due to a bug in data preparation in
-        # data_prepare_depth_shapenet.py!
-        normal_w = (T_cw[:3, :3] @ normal.reshape(-1, 3).T).T
-        rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
-        pts_c = geometry.depth2xyz(depth, intr_mat).reshape(-1, 3)
-        pts_w_frame = (T_cw @ geometry.get_homogeneous(pts_c).T)[:3, :].T
-        input_pts = np.concatenate(
-            [pts_w_frame, normal_w],
-            axis=-1
-        ) # [1952*2368, 6]
-        input_pts = input_pts[mask.reshape(-1)] # [59698, 6]
-        frame = {
-            # "depth_path": depth_path,
-            # "img_path": image_path,
-            # "scene_id": self.scan_id,
-            # "frame_id": idx,
-            # "T_wc": T_cw,
-            # "intr_mat": intr_mat,
-            "rgbd": rgbd,
-            # "mask": mask,
-            "gt_pts": pts_w_frame,
-            # "gt_depth": depth,
-            "input_pts": input_pts,
-        }
-        return frame
-    
     
     def reset_dataset(self, shuffled_idx):
         self.idx_map = {}
@@ -431,7 +380,6 @@ class Sk3DDataset(Dataset):
             barrel_num = int(len(self.metas) / (self.batch_size * self.world_size))
             barrel_num += 2
             self.img_size_map = np.arange(0, len(self.scales))
-
 
     def __getitem__(self, idx):
         global s_h, s_w
@@ -460,20 +408,16 @@ class Sk3DDataset(Dataset):
         proj_matrices = []
         sensor_depths_arr, sensor_masks_arr = [], []
         sensor_intrs, sensor_extrs = [], []
-        sensor_rgbds, sensor_gt_pts, sensor_input_pts = [], [], []
         for i, vid in enumerate(view_ids):
-            ## LOAD RGB
             img_filename = os.path.join(self.datapath, 'dataset/{}/tis_right/rgb/undistorted/{}/{:0>4}.png'.format(scan, light_type, vid))
             
             img = self.read_img(img_filename) 
             img = np.array(img) # already cropped to remove background
 
-            ## LOAD CAMERA PARAMS
             proj_mat_filename = os.path.join(self.datapath, 'addons/{}/tis_right/rgb/mvsnet_input/{:0>8}_cam.txt'.format(scan, vid))
             intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=self.interval_scale[scan]) # already cropped to remove background 
             intrinsics_orig = intrinsics.copy()
 
-            ## LOAD GT DEPTH and MASK
             if i == 0:
                 depth_filename = os.path.join(self.datapath, 'addons/{}/proj_depth/stl.clean_rec.aa@tis_right.undist/{:0>4}.png'.format(scan, vid))
                 depth, mask = self.read_depth_and_mask(depth_filename) # already cropped to remove background
@@ -481,9 +425,8 @@ class Sk3DDataset(Dataset):
             else: 
                 depth, mask = None, None
 
-            # CALCULATE resize_scale according to crop size
+            # resize according to crop size
             if self.mode == 'train':
-                # multi-scale training with dynamic image sizes and batch size
                 [crop_h, crop_w] = self.scales[self.idx_map[idx] % len(self.scales)]
                 enlarge_scale = self.resize_range[0] + random.random() * (self.resize_range[1] - self.resize_range[0])
                 resize_scale_h = np.clip((crop_h * enlarge_scale) / 1351, 0.45, 1.0)
@@ -491,7 +434,6 @@ class Sk3DDataset(Dataset):
                 resize_scale = max(resize_scale_h, resize_scale_w)
             elif self.mode == 'val':
                 # this is different from dtu_dataset_ms which crops non-resized image
-                # permanent size of validation images
                 [crop_h, crop_w] = [576, 768]
                 enlarge_scale = 1.0
                 resize_scale_h = np.clip((crop_h * enlarge_scale) / 1351, 0.45, 1.0)
@@ -500,17 +442,17 @@ class Sk3DDataset(Dataset):
             else:
                 [crop_h, crop_w], resize_scale = [None, None], 1.
 
-            # RESIZE image, depth, mask and alter intrinsics
             if self.mode != "test":
                 if resize_scale != 1.0:
                     img, depth, intrinsics, mask = self.pre_resize(img, depth, intrinsics, mask, resize_scale)
+                    # print('pre resize', intrinsics, 'img depth', img.shape)
 
                 img, depth, intrinsics, mask = self.final_crop(img, depth, intrinsics, mask, crop_h=crop_h, crop_w=crop_w)
+            # print('crop', crop_h, crop_w, intrinsics,'img depth', img.shape)
 
             # scale input
             # img, img_intr = self.scale_mvs_input(img, intrinsics, self.crop, self.resize)
 
-            # AUGMENT RGB images
             img = Image.fromarray(img)
             if not self.augment:
                 imgs.append(self.transforms(img))
@@ -521,13 +463,29 @@ class Sk3DDataset(Dataset):
                 img_aug = self.normalize(img_aug)
                 imgs.append(img_aug)
             
-            # COMBINE extrinsics, intrinsics
+            # extrinsics, intrinsics
             proj_mat = np.zeros(shape=(2, 4, 4), dtype=np.float32)  #
             proj_mat[0, :4, :4] = extrinsics
             proj_mat[1, :3, :3] = intrinsics
             proj_matrices.append(proj_mat)
 
-            # GENERATE stage depths and masks for reference view
+            # read sensor depth
+            # if self.rgbd:
+            #     sensor_depth_filename = os.path.join(self.datapath, 'addons/{}/proj_depth/stl.clean_rec.aa@tis_right.undist/{:0>4}.png'.format(scan, vid)) #os.path.join(self.datapath, 'addons/{}/proj_depth/kinect_v2.undist@tis_right.undist/{:0>4}.png'.format(scan, vid))
+            #     # read sensor depth from file
+            #     # depth is reshaped to pretrained NeuralFusion expected input shape
+            #     sensor_depth, sensor_mask = self.read_depth_and_mask(sensor_depth_filename) # already cropped to remove background
+            #     sensor_depth, sensor_mask, sensor_intr = self.scale_depth_input(sensor_depth, sensor_mask, self.crop, self.sensor_depth_resize, intrinsics=intrinsics_orig)
+            #     sensor_depth = sensor_depth.where(sensor_mask != 0, sensor_depth.new_tensor(0))   
+            #     sensor_extr = np.linalg.inv(extrinsics) # for neuralfusion        
+
+            #     sensor_depths_arr.append(sensor_depth)
+            #     sensor_masks_arr.append(sensor_mask)
+            #     sensor_intrs.append(torch.FloatTensor(sensor_intr))
+            #     sensor_extrs.append(torch.FloatTensor(sensor_extr))
+            # else:
+            #     sensor_depth, sensor_mask = None, None
+
             if i == 0:  # reference view
                 # depth, mask = self.scale_depth_input(depth, mask, self.crop, self.resize)
                 depth_ms = self.generate_stages_array(depth)
@@ -535,32 +493,6 @@ class Sk3DDataset(Dataset):
 
                 depth_max = depth_interval * (self.num_depths - 0.5) + depth_min
                 depth_values = np.arange(depth_min, depth_interval * (self.num_depths - 0.5) + depth_min, depth_interval, dtype=np.float32)
-
-            # READ SENSOR depth
-            if self.rgbd:
-                sensor_depth_filename = os.path.join(self.datapath, 'addons/{}/proj_depth/kinect_v2.undist@tis_right.undist/{:0>4}.png'.format(scan, vid)) #os.path.join(self.datapath, 'addons/{}/proj_depth/kinect_v2.undist@tis_right.undist/{:0>4}.png'.format(scan, vid))
-                # read sensor depth from file
-                # depth is reshaped to pretrained NeuralFusion expected input shape
-                sensor_depth, sensor_mask = self.read_depth_and_mask(sensor_depth_filename) # already cropped to remove background
-                sensor_depth, sensor_mask, sensor_intr = self.scale_depth_input(sensor_depth, sensor_mask, self.crop, self.sensor_depth_resize, intrinsics=intrinsics_orig)
-                sensor_depth = sensor_depth.where(sensor_mask != 0, sensor_depth.new_tensor(0))   
-                sensor_extr = np.linalg.inv(extrinsics)   
-
-                # print(sensor_mask.dtype)
-
-                frame = self.bnv_sensor_depth_item(sensor_depth, img, sensor_mask, sensor_extr, sensor_intr)
-
-                sensor_depths_arr.append(sensor_depth)
-                sensor_masks_arr.append(sensor_mask)
-                sensor_intrs.append(torch.FloatTensor(sensor_intr))
-                sensor_extrs.append(torch.FloatTensor(sensor_extr))
-                sensor_rgbds.append(frame["rgbd"])
-                sensor_gt_pts.append(frame["gt_pts"])
-                sensor_input_pts.append(frame["input_pts"])
-
-                print(frame["rgbd"].shape)
-            else:
-                sensor_depth, sensor_mask = None, None
             
 
         # all
