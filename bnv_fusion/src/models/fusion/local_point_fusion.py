@@ -11,11 +11,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-from src.models.model_utils import set_optimizer_and_lr
-from src.models.models import register
-from src.models.fusion.modules import LocalNeRFModel, tcnnNeRFModel
-import src.utils.voxel_utils as voxel_utils
-import src.utils.pointnet_utils as pointnet_utils
+from bnv_fusion.src.models.model_utils import set_optimizer_and_lr
+from bnv_fusion.src.models.models import register
+from bnv_fusion.src.models.fusion.modules import LocalNeRFModel, tcnnNeRFModel
+import bnv_fusion.src.utils.voxel_utils as voxel_utils
+import bnv_fusion.src.utils.pointnet_utils as pointnet_utils
 
 
 @register('lit_fusion_pointnet')
@@ -28,12 +28,9 @@ class LitFusionPointNet(pl.LightningModule):
         self.feat_dims = cfg.model.feature_vector_size
         self.interpolate_decode = cfg.model.nerf.interpolate_decode
         if cfg.model.tiny_cuda: # True
-            # print(1)
             self.pointnet_backbone = pointnet_utils.tcnnPointNetEncoder(
-                self.feat_dims, tcnn_config=cfg.model.tcnn_config, **cfg.model.point_net)
-            # print(2)
-            self.nerf = tcnnNeRFModel(self.feat_dims, tcnn_config=cfg.model.tcnn_config, **cfg.model.nerf)
-            # print(3)
+                self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.point_net)) #**cfg.model.point_net)
+            self.nerf = tcnnNeRFModel(self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.nerf))#**cfg.model.nerf)
         else:
             self.pointnet_backbone = pointnet_utils.PointNetEncoder(
                 self.feat_dims, **cfg.model.point_net)

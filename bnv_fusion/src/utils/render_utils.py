@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import time
 
-from src.models.fusion.utils import get_neighbors
+from bnv_fusion.src.models.fusion.utils import get_neighbors
 
 
 class Sampler():

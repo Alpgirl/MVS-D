@@ -7,15 +7,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-from src.models.sparse_volume import VolumeList
-from src.models.model_utils import set_optimizer_and_lr
-from src.models.models import register
-from src.models.fusion.modules import ReplicateNeRFModel
-from src.utils.render_utils import get_camera_params
-from src.utils.render_utils import hierarchical_sampling
-import src.utils.voxel_utils as voxel_utils
-import src.utils.hydra_utils as hydra_utils
-from src.utils.common import override_weights
+from bnv_fusion.src.models.sparse_volume import VolumeList
+from bnv_fusion.src.models.model_utils import set_optimizer_and_lr
+from bnv_fusion.src.models.models import register
+from bnv_fusion.src.models.fusion.modules import ReplicateNeRFModel
+from bnv_fusion.src.utils.render_utils import get_camera_params
+from bnv_fusion.src.utils.render_utils import hierarchical_sampling
+import bnv_fusion.src.utils.voxel_utils as voxel_utils
+import bnv_fusion.src.utils.hydra_utils as hydra_utils
+from bnv_fusion.src.utils.common import override_weights
 
 log = hydra_utils.get_logger(__name__)
 
@@ -349,7 +349,7 @@ class LitFusionRefiner(pl.LightningModule):
             mesh.export(mesh_out_path)
 
     def configure_optimizers(self):
-        from src.utils.import_utils import import_from
+        from bnv_fusion.src.utils.import_utils import import_from
 
         optimizers = []
         if not self.cfg.model.freeze_pretrained_weights:

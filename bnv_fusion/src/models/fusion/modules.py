@@ -6,9 +6,9 @@ import torch.nn.functional as F
 import commentjson as json
 import tinycudann as tcnn
 
-from src.models.fusion.embedder import *
-from src.models.models import register
-import src.utils.pointnet_utils as pointnet_utils
+from bnv_fusion.src.models.fusion.embedder import *
+from bnv_fusion.src.models.models import register
+import bnv_fusion.src.utils.pointnet_utils as pointnet_utils
 
 
 class Implicit(nn.Module):

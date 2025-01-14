@@ -145,11 +145,12 @@ class Sk3DDataset(Dataset):
         self.rgbd = kwargs.get('rgbd', False)
         self.sensor_depth_resize = kwargs.get('sensor_depth_resize', self.resize) # this is resize for NeuralFusion expected input size
 
-        # self.multi_scale = kwargs.get('multi_scale', False)
-        # self.multi_scale_args = kwargs['multi_scale_args']
+        self.multi_scale = kwargs.get('multi_scale', False)
+        self.multi_scale_args = kwargs['multi_scale_args']
         
-        # self.scales = self.multi_scale_args['scales']#[::-1]
-        # self.resize_range = self.multi_scale_args['resize_range']
+        self.scales = self.multi_scale_args['scales']#[::-1]
+        self.resize_range = self.multi_scale_args['resize_range']
+
         self.batch_size = kwargs.get('batch_size', 4) if mode == 'train' else kwargs.get('eval_batch_size', 4)
         self.world_size = kwargs.get('world_size', 1)
 
@@ -174,6 +175,22 @@ class Sk3DDataset(Dataset):
             self.light_types = ['ambient@best']
         self.metas = self.build_list()
         self.list_begin = []
+        self.dimensions = self.calculate_dimensions()
+
+
+    def calculate_dimensions(self):
+        bounds = np.load("/app/bounds_v1.npy")
+        # mini = np.ones(3) * np.finfo(np.float32).max
+        # maxi = np.ones(3) * np.finfo(np.float32).min
+        # mesh = trimesh.load(self.gt_mesh)
+        # v = np.asarray(mesh.vertices)
+        # mini = np.minimum(mini, v.min(axis=0))
+        # maxi = np.maximum(maxi, v.max(axis=0))
+        min_coords = np.min(bounds, axis=1)
+
+        # return (maxi - mini) / 2
+        return bounds #(bounds[:,1] - bounds[:,0])
+    
 
     def build_list(self):
         metas = []  # {}
@@ -373,7 +390,21 @@ class Sk3DDataset(Dataset):
         
 
     def bnv_sensor_depth_item(self, depth, rgb, mask, T_cw, intr_mat):
-        # mask = mask.astype(np.bool_)
+        """
+        input:
+            depth: torch.Tensor, sensor depth
+            rgb: torch.Tensor, rgb image
+            mask: torch.Tensor, sensor mask
+            T_cw: numpy.ndarray, extrinsics 4x4
+            intr_mat: numpy.ndarray, intrinsics 3x3
+
+        return:
+            frame: dict, 
+                        rgbd: numpy.ndarray, rgb+sensor depth
+                        gt_pts, numpy.ndarray, sensor depth points in world xyz
+                        input_pts, numpy.ndarray, gt_pts + normals where depth > 0
+        """
+        mask = mask.to(torch.bool)
         normal = depth_to_normals(
             torch.unsqueeze(torch.unsqueeze(depth, 0), 0),
             torch.unsqueeze(torch.from_numpy(intr_mat), 0)
@@ -381,7 +412,7 @@ class Sk3DDataset(Dataset):
 
         gt_xyz_map = depth_to_3d_v2(
             depth,
-            intr_mat
+            torch.from_numpy(intr_mat)
         ).numpy()
 
         img_h, img_w = depth.shape
@@ -390,15 +421,18 @@ class Sk3DDataset(Dataset):
 
         # NOTE: VERY IMPORTANT TO * -1 for normal due to a bug in data preparation in
         # data_prepare_depth_shapenet.py!
+
+        # print(rgb.shape, depth[None,...].shape)
         normal_w = (T_cw[:3, :3] @ normal.reshape(-1, 3).T).T
-        rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
-        pts_c = geometry.depth2xyz(depth, intr_mat).reshape(-1, 3)
+        # rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
+
+        pts_c = geometry.depth2xyz(depth.numpy(), intr_mat).reshape(-1, 3)
         pts_w_frame = (T_cw @ geometry.get_homogeneous(pts_c).T)[:3, :].T
         input_pts = np.concatenate(
             [pts_w_frame, normal_w],
             axis=-1
-        ) # [1952*2368, 6]
-        input_pts = input_pts[mask.reshape(-1)] # [59698, 6]
+        ) # [1376*1600, 6]
+        input_pts = input_pts[mask.reshape(-1)] # [2124147, 6]
         frame = {
             # "depth_path": depth_path,
             # "img_path": image_path,
@@ -406,7 +440,7 @@ class Sk3DDataset(Dataset):
             # "frame_id": idx,
             # "T_wc": T_cw,
             # "intr_mat": intr_mat,
-            "rgbd": rgbd,
+            # "rgbd": rgbd,
             # "mask": mask,
             "gt_pts": pts_w_frame,
             # "gt_depth": depth,
@@ -547,18 +581,15 @@ class Sk3DDataset(Dataset):
                 sensor_extr = np.linalg.inv(extrinsics)   
 
                 # print(sensor_mask.dtype)
-
-                frame = self.bnv_sensor_depth_item(sensor_depth, img, sensor_mask, sensor_extr, sensor_intr)
+                frame = self.bnv_sensor_depth_item(sensor_depth, imgs[-1], sensor_mask, sensor_extr, sensor_intr)
 
                 sensor_depths_arr.append(sensor_depth)
                 sensor_masks_arr.append(sensor_mask)
                 sensor_intrs.append(torch.FloatTensor(sensor_intr))
                 sensor_extrs.append(torch.FloatTensor(sensor_extr))
-                sensor_rgbds.append(frame["rgbd"])
-                sensor_gt_pts.append(frame["gt_pts"])
-                sensor_input_pts.append(frame["input_pts"])
-
-                print(frame["rgbd"].shape)
+                # sensor_rgbds.append(torch.FloatTensor(frame["rgbd"]))
+                sensor_gt_pts.append(torch.FloatTensor(frame["gt_pts"]))
+                sensor_input_pts.append(torch.FloatTensor(frame["input_pts"]))
             else:
                 sensor_depth, sensor_mask = None, None
             
@@ -582,12 +613,13 @@ class Sk3DDataset(Dataset):
             "stage3": stage2_pjmats,
             "stage4": stage3_pjmats
         }
-
-        # if self.rgbd:
-        #     sensor_depths_arr = torch.stack(sensor_depths_arr) # [V, H, W]
-        #     sensor_masks_arr = torch.stack(sensor_masks_arr) # [V, H, W]
-        #     sensor_intrs = torch.stack(sensor_intrs)
-        #     sensor_extrs = torch.stack(sensor_extrs)
+   
+        if self.rgbd:
+            sensor_depths_arr = torch.stack(sensor_depths_arr) # [V, H, W]
+            sensor_masks_arr = torch.stack(sensor_masks_arr) # [V, H, W]
+            sensor_intrs = torch.stack(sensor_intrs)
+            sensor_extrs = torch.stack(sensor_extrs)
+            # sensor_rgbds = torch.stack(sensor_rgbds)
 
         result = {"imgs": imgs,
                 "depth": depth_ms,
@@ -599,10 +631,13 @@ class Sk3DDataset(Dataset):
                 "depth_interval": depth_interval, 
                 'depths_max': depth_max, 'depths_min': depth_min}
         
-        # if self.rgbd:
-        #     result["sensor_depths"] = sensor_depths_arr
-        #     result["sensor_depth_masks"] = sensor_masks_arr
-        #     result["sensor_intr"] = sensor_intrs
-        #     result["sensor_extr"] = sensor_extrs
+        if self.rgbd:
+            result["sensor_depths"] = sensor_depths_arr
+            result["sensor_depth_masks"] = sensor_masks_arr
+            result["sensor_intr"] = sensor_intrs
+            result["sensor_extr"] = sensor_extrs
+            result["input_pts"] = sensor_input_pts
+            # result["rgbd"] = sensor_rgbds
+            result["gt_pts"] = sensor_gt_pts
         
         return result

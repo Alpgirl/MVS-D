@@ -5,6 +5,8 @@ import os
 from models.position_encoding import get_position_3d
 from models.FMT import FMT_with_pathway
 import pdb
+
+
 Align_Corners_Range = False
 
 
@@ -25,6 +27,7 @@ class DINOv2MVSNet(nn.Module):
     def __init__(self, args):
         super(DINOv2MVSNet, self).__init__()
         self.args = args
+        self.rgbd = args.get('rgbd', False)
         self.ndepths = args['ndepths']
         self.depth_interals_ratio = args['depth_interals_ratio']
         self.inverse_depth = args.get('inverse_depth', False)
@@ -52,6 +55,21 @@ class DINOv2MVSNet(nn.Module):
 
         self.fusions = nn.ModuleList([StageNet(args, self.ndepths[i], i) for i in range(len(self.ndepths))])
 
+
+    def extract_depth_features(self, sensor_data, neural_map, pointnet_model):
+        print(sensor_data["depths"].shape)
+        B, V = sensor_data["depths"].shape[:2]
+        print(f"B={B}, V={V}")
+        print(sensor_data["input_pts"][0][0].shape, len(sensor_data["input_pts"][0]), len(sensor_data["input_pts"]))
+
+        ## TO CONTINUE: INTEGRATE_FRAME()
+        # frame = {
+        #     "input_pts": sensor_data["input_pts"][]
+        # }
+        # neural_map.integrate()
+        return
+    
+
     def vit_forward(self, vit_imgs, B, V, vit_h, vit_w, Fmats=None):
         if self.freeze_vit:
             with torch.no_grad():
@@ -64,8 +82,9 @@ class DINOv2MVSNet(nn.Module):
         vit_feat = self.decoder_vit.forward(vit_out, Fmats=Fmats, vit_shape=vit_shape)
 
         return vit_feat
+    
 
-    def forward(self, imgs, proj_matrices, depth_values, tmp=[5., 5., 5., 1.]):
+    def forward(self, imgs, proj_matrices, depth_values, sensor_data, pointnet_model, neural_map, tmp=[5., 5., 5., 1.]):
         B, V, H, W = imgs.shape[0], imgs.shape[1], imgs.shape[3], imgs.shape[4]
         depth_interval = depth_values[:, 1] - depth_values[:, 0] # 0.002
         
@@ -120,6 +139,10 @@ class DINOv2MVSNet(nn.Module):
                         'stage3': feat3.reshape(B, V, feat3.shape[1], feat3.shape[2], feat3.shape[3]),
                         'stage4': feat4.reshape(B, V, feat4.shape[1], feat4.shape[2], feat4.shape[3])}
 
+        if self.rgbd:
+            self.extract_depth_features(sensor_data, pointnet_model, neural_map)
+
+        raise
         features = self.FMT_module.forward(features)
 
         outputs = {}

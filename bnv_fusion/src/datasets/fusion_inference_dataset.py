@@ -6,11 +6,11 @@ import trimesh
 import numpy as np
 from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
 
-from src.datasets import register
-import src.utils.geometry as geometry
-import src.utils.voxel_utils as voxel_utils
-from src.utils.common import load_depth, load_rgb, load_depth_sk3d
-# import src.utils.scannet_helper as scannet_helper
+from bnv_fusion.src.datasets import register
+import bnv_fusion.src.utils.geometry as geometry
+import bnv_fusion.src.utils.voxel_utils as voxel_utils
+from bnv_fusion.src.utils.common import load_depth, load_rgb, load_depth_sk3d
+# import bnv_fusion.src.utils.scannet_helper as scannet_helper
 
 
 class FusionInferenceAbstractDataset(torch.utils.data.Dataset):

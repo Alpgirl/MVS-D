@@ -19,3 +19,6 @@ CUDA_VISIBLE_DEVICES=0 python test.py --dataset sk3d --batch_size 1  --testpath 
 
 BNV_fusion:
 python src/run_e2e.py model=fusion_pointnet_model dataset=sk3d_dataset dataset.scan_id="sk3d/green_funnels" trainer.checkpoint=$PWD/pretrained/pointnet_tcnn.ckpt model.tcnn_config=$PWD/src/models/tcnn_config.json model.mode="demo"
+
+## LAUNCH train_sk3d.py MVSFormer++
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch train_sk3d.py --config ./config/mvsformer++_sk3d.json --exp_name first --DDP false

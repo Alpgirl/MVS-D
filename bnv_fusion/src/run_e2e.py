@@ -10,16 +10,16 @@ from tqdm import tqdm
 from pytorch_lightning import seed_everything
 import trimesh
 
-from src.datasets import datasets
-from src.datasets.fusion_inference_dataset import IterableInferenceDataset
-import src.utils.o3d_helper as o3d_helper
-import src.utils.hydra_utils as hydra_utils
-import src.utils.voxel_utils as voxel_utils
-from src.models.fusion.local_point_fusion import LitFusionPointNet
-from src.models.sparse_volume import SparseVolume
-from src.utils.render_utils import calculate_loss
-from src.utils.common import to_cuda, Timer
-import third_parties.fusion as fusion
+from bnv_fusion.src.datasets import datasets
+from bnv_fusion.src.datasets.fusion_inference_dataset import IterableInferenceDataset
+import bnv_fusion.src.utils.o3d_helper as o3d_helper
+import bnv_fusion.src.utils.hydra_utils as hydra_utils
+import bnv_fusion.src.utils.voxel_utils as voxel_utils
+from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
+from bnv_fusion.src.models.sparse_volume import SparseVolume
+from bnv_fusion.src.utils.render_utils import calculate_loss
+from bnv_fusion.src.utils.common import to_cuda, Timer
+import bnv_fusion.third_parties.fusion as fusion
 
 
 log = hydra_utils.get_logger(__name__)
@@ -103,16 +103,16 @@ class NeuralMap:
                 fine_feats,
                 fine_weights)
             # tsdf fusion
-            rgbd = frame['rgbd'].cpu().numpy() # [1, 4, 1952, 2368]
-            depth_map = rgbd[0, -1, :, :]
-            rgb = (rgbd[0, :3, :, :].transpose(1, 2, 0) + 0.5) * 255.
-            # depth_map = rgbd[0, 3, :, :]
-            self.tsdf_vol.integrate(
-                rgb,  # [h, w, 3], [0, 255]
-                depth_map,  # [h, w], metric depth
-                frame['intr_mat'].cpu().numpy()[0],
-                frame["T_wc"].cpu().numpy()[0],
-                obs_weight=1.)
+            # rgbd = frame['rgbd'].cpu().numpy() # [1, 4, 1952, 2368]
+            # depth_map = rgbd[0, -1, :, :]
+            # rgb = (rgbd[0, :3, :, :].transpose(1, 2, 0) + 0.5) * 255.
+            # # depth_map = rgbd[0, 3, :, :]
+            # self.tsdf_vol.integrate(
+            #     rgb,  # [h, w, 3], [0, 255]
+            #     depth_map,  # [h, w], metric depth
+            #     frame['intr_mat'].cpu().numpy()[0],
+            #     frame["T_wc"].cpu().numpy()[0],
+            #     obs_weight=1.)
 
     def optimize(self, n_iters, last_frame):
         self.volume.to_tensor()

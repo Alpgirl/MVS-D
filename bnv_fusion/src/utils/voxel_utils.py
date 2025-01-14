@@ -4,7 +4,7 @@ import pickle
 import torch
 import torch.nn.functional as F
 
-import src.utils.geometry as geometry
+import bnv_fusion.src.utils.geometry as geometry
 
 
 # threshold for numerical stability

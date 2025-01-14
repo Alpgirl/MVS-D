@@ -8,9 +8,9 @@ import torch.nn.functional as F
 import torch.utils.dlpack
 import trimesh
 
-from src.models.fusion.utils import get_neighbors
-import src.utils.voxel_utils as voxel_utils
-import src.utils.o3d_helper as o3d_helper
+from bnv_fusion.src.models.fusion.utils import get_neighbors
+import bnv_fusion.src.utils.voxel_utils as voxel_utils
+import bnv_fusion.src.utils.o3d_helper as o3d_helper
 
 
 class SparseTSDFVolume:

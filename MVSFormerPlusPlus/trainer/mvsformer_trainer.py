@@ -11,17 +11,24 @@ from base import BaseTrainer
 from models.losses import *
 from utils import *
 
+from pytorch_lightning import seed_everything
+from bnv_fusion.src.utils import hydra_utils
+from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
+from bnv_fusion.src.models.sparse_volume import SparseVolume
+from bnv_fusion.src.run_e2e import NeuralMap
+
 
 class Trainer(BaseTrainer):
     """
     Trainer class
     """
 
-    def __init__(self, model, optimizer, config, data_loader, valid_data_loader=None, lr_scheduler=None, writer=None,
+    def __init__(self, model, optimizer, config, bnvconfig, data_loader, valid_data_loader=None, lr_scheduler=None, writer=None,
                  rank=0, ddp=False,
                  train_sampler=None, debug=False):
         super().__init__(model, optimizer, config, writer=writer, rank=rank, ddp=ddp)
         self.config = config
+        self.bnvconfig = bnvconfig
         self.ddp = ddp
         self.debug = debug
         self.data_loader = data_loader
@@ -57,6 +64,77 @@ class Trainer(BaseTrainer):
             self.fp16 = False
         self.bf16 = config["arch"].get("bf16", False)
 
+        if 'rgbd' in config['data_loader'][0]['args'].keys():
+            self.rgbd = config['data_loader'][0]['args']['rgbd']
+        else:
+            self.rgbd = False
+        
+        self.dimensions = data_loader[0].dataset.dimensions
+
+
+    # @staticmethod
+    # @hydra.main(config_path="/app/bnv_fusion/configs/", config_name="config.yaml")
+    # def prepare_bnvfusion_config(config: DictConfig):
+    #     with open_dict(config):
+    #     # Modify existing parameters
+    #         config.model = "fusion_pointnet_model"
+    #         # dataset=sk3d_dataset dataset.scan_id="sk3d/green_funnels" trainer.checkpoint=$PWD/pretrained/pointnet_tcnn.ckpt model.tcnn_config=$PWD/src/models/tcnn_config.json model.mode="demo"
+
+    #     if "seed" in config.trainer:
+    #         seed_everything(config.trainer.seed)
+
+    #     hydra_utils.extras(config)
+    #     hydra_utils.print_config(config, resolve=True)
+
+    #     return config
+
+
+    def prepare_bnvfusion_input(self, sample_cuda, b_start, b_end):
+        sensor_depths = None
+        sensor_depths_masks = None
+        if b_start is None:
+            b_start = 0
+        if b_end is None:
+            b_end = sample_cuda['sensor_extr'].shape[0]
+        
+        # print(f"input_pts full: {len(sample_cuda['input_pts'])}, b_start: {b_start}, b_end: {b_end}")
+        # prepare sensor data
+        if 'sensor_depths' in sample_cuda.keys():
+            sensor_data = {
+                'depths': sample_cuda['sensor_depths'][b_start:b_end],
+                'masks': sample_cuda['sensor_depth_masks'][b_start:b_end],
+                'intr': sample_cuda['sensor_intr'][b_start:b_end],
+                'extr': sample_cuda['sensor_extr'][b_start:b_end],
+                'input_pts': sample_cuda['input_pts'][b_start:b_end],
+                'gt_pts': sample_cuda['gt_pts'][b_start:b_end],
+            }
+        else:
+            sensor_data = {}
+
+        # prepare config
+        if self.bnvconfig.trainer.__check_atr__("seed"):
+            seed_everything(self.bnvconfig.trainer.seed)
+
+        # initialize model
+        print("initializing model")
+        pointnet_model = LitFusionPointNet(self.bnvconfig)
+        pretrained_weights = torch.load(self.bnvconfig.trainer.checkpoint)
+        pointnet_model.load_state_dict(pretrained_weights['state_dict'])
+        pointnet_model.eval()
+        pointnet_model.cuda()
+        pointnet_model.freeze()
+
+        # initialize volume object
+        print("initializing volume object")
+        neural_map = NeuralMap(
+            self.dimensions,
+            self.bnvconfig,
+            pointnet_model,
+            working_dir="")
+
+        return sensor_data, pointnet_model, neural_map
+    
+
     def _train_epoch(self, epoch):
         """
         Training logic for an epoch
@@ -65,11 +143,10 @@ class Trainer(BaseTrainer):
         """
 
         # if self.ddp:
-        self.train_sampler.set_epoch(epoch)  # Shuffle each epoch
+        # self.train_sampler.set_epoch(epoch)  # Shuffle each epoch
         if self.multi_scale:
             for i in range(len(self.data_loader)):
                 self.data_loader[i].dataset.reset_dataset(self.train_sampler)
-
 
         self.model.train()
         dist_group = torch.distributed.group.WORLD
@@ -88,6 +165,21 @@ class Trainer(BaseTrainer):
             for batch_idx, sample in enumerate(t_loader):
 
                 num_stage = 3 if self.config['data_loader'][0]['args'].get('stage3', False) else 4
+                
+                ## DEBUG
+                # for k, v in sample.items():
+                #     print(f"{k}")
+                #     if k == "input_pts":
+                #         print(len(v), len(v[0]), len(v[1]))
+                #     elif k == "depth":
+                #         print(v["stage1"].shape)
+                #     elif k == "scan":
+                #         print(v)
+                #     try:
+                #         print(v.shape)
+                #     except:
+                #         print(len(v))
+
                 sample_cuda = tocuda(sample)
                 depth_gt_ms = sample_cuda["depth"]
                 mask_ms = sample_cuda["mask"]
@@ -96,7 +188,7 @@ class Trainer(BaseTrainer):
                 depth_interval = depth_values[:, 1] - depth_values[:, 0]
 
                 self.optimizer.zero_grad()
-
+                
                 # gradient accumulate
                 if self.multi_scale:
                     # if self.multi_ratio_scale_batch_map is not None:
@@ -121,14 +213,22 @@ class Trainer(BaseTrainer):
                         cam_params_tmp[k] = cam_params[k][b_start:b_end]
                         depth_gt_ms_tmp[k] = depth_gt_ms[k][b_start:b_end]
                         mask_ms_tmp[k] = mask_ms[k][b_start:b_end]
+                    
+                    if self.rgbd:
+                        sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample, b_start, b_end)
+                    else:
+                        sensor_data, pointnet_model, neural_map = None, None, None
 
                     if self.fp16:
                         with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
 
-                            outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end])
+                            outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map)
                     else:
 
-                        outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end])
+                        outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map)
+
+                    ## DEBUG FOR BNV Fusion features!!
+                    raise
 
                     if type(self.depth_type) == list:
                         loss_dict = get_multi_stage_losses(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp, mask_ms_tmp,

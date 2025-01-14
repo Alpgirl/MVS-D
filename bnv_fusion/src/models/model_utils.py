@@ -1,4 +1,4 @@
-from src.utils.import_utils import import_from
+from bnv_fusion.src.utils.import_utils import import_from
 
 
 def set_optimizer_and_lr(cfg, parameters):

@@ -213,8 +213,7 @@ def save_depth(testlist, config):
         test_data_loader = module_data.DTULoader(**init_kwags)
     elif cfg_dataloader == "BlendedLoader":
         test_data_loader = module_data.BlendedLoader(**init_kwags)
-    next(iter(test_data_loader))
-    raise
+        
     # model
     # build models architecture, then print to console
     model = init_model(config)

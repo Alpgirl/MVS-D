@@ -80,6 +80,12 @@ def tocuda(vars):
         return vars.to(torch.device("cuda"))
     elif isinstance(vars, str):
         return vars
+    elif isinstance(vars, np.ndarray):
+        # do not need to place on cuda (it is done in bnv_fusion)
+        # V = len(vars[0])
+        # vars = [el.to(torch.device("cuda")) for sublist in vars for el in sublist]
+        # vars = [vars[i:i+V] for i in range(0, len(vars), V)]
+        return vars
     else:
         raise NotImplementedError("invalid input type {} for tensor2numpy".format(type(vars)))
 

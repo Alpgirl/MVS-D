@@ -6,7 +6,7 @@ import torch
 import os
 
 
-from src.utils.geometry import get_homogeneous
+from bnv_fusion.src.utils.geometry import get_homogeneous
 
 
 def align_vector_to_another(a=np.array([0, 0, 1]), b=np.array([1, 0, 0])):

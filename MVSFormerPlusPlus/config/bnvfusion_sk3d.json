@@ -1,0 +1,111 @@
+{
+    "debug": false,
+    "disable_warnings": false,
+    "device_type": "cuda",
+    "model": {
+        "_class_": "LitFusionPointnet",
+        "name": "lit_fusion_pointnet",
+        "feature_vector_size": 8,
+        "voxel_size": 0.009,
+        "train_split": 10000,
+        "train_ray_splits": 1000,
+        "tiny_cuda": true,
+        "tcnn_config": "/app/bnv_fusion/src/models/tcnn_config.json",
+        "training_global": false,
+        "global_coords": false,
+        "interpolate_decode": true,
+        "bound_max": [1, 1, 1],
+        "bound_min": [-1, -1, -1],
+        "min_pts_in_grid": 8,
+        "point_net": {
+        "in_channels": 6
+        },
+        "nerf": {
+        "hidden_size": 256,
+        "num_layers": 4,
+        "num_encoding_fn_xyz": 1,
+        "num_encoding_fn_dir": 6,
+        "include_input_xyz": true,
+        "include_input_dir": true,
+        "interpolate_decode": true,
+        "global_coords": false,
+        "xyz_agnostic": false
+        },
+        "loss": {
+        "bce_loss": 1.0,
+        "reg_loss": 0.001,
+        "depth_bce_loss": 1.0
+        },
+        "ray_tracer": {
+        "ray_max_dist": 3,
+        "truncated_units": 10
+        },
+        "sdf_delta_weight": 0.1,
+        "optim_interval": 100,
+        "mode": "eval",
+        "freeze_pretrained_weights": true,
+        "pretrained_model": "/home/kejie/repository/fast_sdf/logs/train/2021-10-21/22-37-03/lightning_logs/version_0/checkpoints/last.ckpt",
+        "depth_scale": 1000
+    },
+    "dataset": {
+        "scan_id": "bamboo_box",
+        "num_pixels": 5000,
+        "skip_images": 10,
+        "confidence_level": 0
+    },
+    "optimizer": {
+        "_target_package_": "torch.optim",
+        "_class_": "Adam",
+        "eps": 1e-08,
+        "weight_decay": 0,
+        "betas": [0.9, 0.999],
+        "lr": {
+            "name": "base_lr",
+            "initial": 0.001,
+            "interval": "epoch",
+            "scheduler": "StepLR"
+        },
+        "lr_scheduler": {
+            "step_size": 20000,
+            "gamma": 0.5,
+            "last_epoch": -1
+        },
+        "_convert_": "partial"
+    },
+    "trainer": {
+        "_target_": "pytorch_lightning.Trainer",
+        "checkpoint": "/app/bnv_fusion/pretrained/pointnet_tcnn.ckpt",
+        "gpus": 1,
+        "seed": 12345,
+        "min_epochs": 1,
+        "max_epochs": 10,
+        "weights_summary": null,
+        "progress_bar_refresh_rate": 10,
+        "check_val_every_n_epoch": 10,
+        "terminate_on_nan": true,
+        "fast_dev_run": false,
+        "weight_only": false,
+        "dense_volume": false,
+        "post_process": true
+    },
+    "callbacks": {
+        "model_checkpoint": {
+            "_target_": "pytorch_lightning.callbacks.ModelCheckpoint",
+            "monitor": "val/acc",
+            "save_top_k": 1,
+            "save_last": true,
+            "mode": "max",
+            "verbose": false,
+            "dirpath": "checkpoints/",
+            "filename": "{epoch:02d}"
+          },
+          "early_stopping": {
+            "_target_": "pytorch_lightning.callbacks.EarlyStopping",
+            "monitor": "val/acc",
+            "patience": 100,
+            "mode": "max",
+            "min_delta": 0
+          }
+    }      
+  }
+  
