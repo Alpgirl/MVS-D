@@ -48,7 +48,7 @@
         "depth_scale": 1000
     },
     "dataset": {
-        "scan_id": "bamboo_box",
+        "scan_id": "green_funnels",
         "num_pixels": 5000,
         "skip_images": 10,
         "confidence_level": 0

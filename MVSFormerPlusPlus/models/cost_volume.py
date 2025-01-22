@@ -22,11 +22,12 @@ autocast = torch.cuda.amp.autocast if torch.__version__ >= '1.6.0' else identity
 
 
 class StageNet(nn.Module):
-    def __init__(self, args, ndepth, stage_idx):
+    def __init__(self, args, bnvconfig, ndepth, stage_idx):
         super(StageNet, self).__init__()
         self.args = args
         self.fusion_type = args.get('fusion_type', 'cnn')
         self.ndepth = ndepth
+        self.bnvconfig = bnvconfig
         self.stage_idx = stage_idx
         self.cost_reg_type = args.get("cost_reg_type", ["Normal", "Normal", "Normal", "Normal"])[stage_idx]
         self.depth_type = args["depth_type"]
@@ -51,7 +52,7 @@ class StageNet(nn.Module):
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
 
-    def forward(self, features, proj_matrices, depth_values, tmp, position3d=None):
+    def forward(self, features, proj_matrices, depth_values, dimensions, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]
         src_feats = features[:, 1:] # [1, V-1, 64, 172, 200]
         src_feats = torch.unbind(src_feats, dim=1) # tuple of [1, 64, 172, 200], len=9
@@ -106,13 +107,22 @@ class StageNet(nn.Module):
         # VISUALIZE COST VOLUME
         ## DEBUG
         # convert cost volume to pcd3d
+        print(f"depth_values: {depth_values.shape}")
+        print(f"cot volume: {volume_mean.shape}")
+        print(depth_values[0][5], depth_values[1][5])
+
+        # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
         points = global_pcd_batch(depth_values, ref_proj)
 
-        mesh = trimesh.Trimesh(vertices=points.detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
-        # # mesh.vertex_normals = normals
-        output_path = os.path.join(os.getcwd(), "act_coord.ply")
-        mesh.export(output_path)
-        print(f"Mesh exported successfully to {output_path}")
+        # mesh = trimesh.Trimesh(vertices=points.numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # # mesh.vertex_normals = normals
+        # output_path = os.path.join(os.getcwd(), "act_coord_extr.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # # save tensor
+        # torch.save(points, "/app/MVSFormerPlusPlus/bnvlogs/cv_points.pt")
+        # print("Tensors are successfully saved")
 
         raise
         ## DEBUG

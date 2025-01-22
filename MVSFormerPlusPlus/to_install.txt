@@ -22,3 +22,10 @@ python src/run_e2e.py model=fusion_pointnet_model dataset=sk3d_dataset dataset.s
 
 ## LAUNCH train_sk3d.py MVSFormer++
 CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch train_sk3d.py --config ./config/mvsformer++_sk3d.json --exp_name first --DDP false
+
+## LAUNCH train_sk3d.py MVSFormer++ with bnvconfig
+CUDA_VISIBLE_DEVICES=0 python  train_sk3d.py --config ./config/mvsformer++_sk3d.json --bnvconfig ./config/bnvfusion_sk3d.json --exp_name first
+
+
+## TurboVNC - visualize active coordinates, depth samples and GT
+vglrun meshlab /mnt/remotes/midas/home/i.larina/bnvfusion/MVSFormerPlusPlus/act_coord.ply /mnt/remotes/midas/home/i.larina/bnvfusion/MVSFormerPlusPlus/depth_feats.ply /mnt/remotes/midas/home/i.larina/sk3d/dataset/bamboo_box/stl/reconstruction/cleaned.ply

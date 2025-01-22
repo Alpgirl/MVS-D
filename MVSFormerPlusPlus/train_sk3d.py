@@ -70,7 +70,7 @@ class DotDict:
                 value = DotDict(value)  # Recurse for nested dictionaries
             self.__dict__[key] = value
 
-    def __check_atr__(self, atr):
+    def __check_attr__(self, atr):
         print(self.__dict__.keys())
         if atr in self.__dict__.keys():
             return True
@@ -188,7 +188,7 @@ def main(gpu, args, config, bnvconfig):
             break
 
     # build models architecture, then print to console
-    model = init_model(config)
+    model = init_model(config, bnvconfig)
     # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
     opt_args = config['optimizer']['args']
 

@@ -85,7 +85,7 @@ def tocuda(vars):
         # V = len(vars[0])
         # vars = [el.to(torch.device("cuda")) for sublist in vars for el in sublist]
         # vars = [vars[i:i+V] for i in range(0, len(vars), V)]
-        return vars
+        return torch.tensor(vars).to(torch.device("cuda"))
     else:
         raise NotImplementedError("invalid input type {} for tensor2numpy".format(type(vars)))
 
@@ -326,35 +326,57 @@ def global_pcd_batch(depth_values, ref_proj):
     return: 3d points in wolrd space (N, 3)
     """
     
-    _, b, h, w = depth_values.shape
+    # _, b, h, w = depth_values.shape
+    b, h, w = depth_values[0].shape # we take 0 index because depth samples are identical for batch
     n_points = h * w
 
     # generate frame meshgrid
-    xx, yy = torch.meshgrid([torch.arange(h, dtype=torch.float), torch.arange(w, dtype=torch.float)])
+    vv, uu = torch.meshgrid([torch.arange(h, dtype=torch.float), torch.arange(w, dtype=torch.float)])
 
     # flatten grid coordinates and bring them to batch size
-    xx = xx.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values) # [32, 34400, 1]
-    yy = yy.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values)
-    zz = depth_values.contiguous().view(b, h * w, 1)
+    uu = uu.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values) # [32, 34400, 1]
+    vv = vv.contiguous().view(1, h * w, 1).repeat((b, 1, 1)).to(depth_values)
+    zz = depth_values[0].contiguous().view(b, h * w, 1)
 
-    points = torch.cat([yy, xx, zz], axis=2).clone() # [32, 34400, 3]
+    points = torch.cat([uu, vv, zz], axis=2).clone() # [32, 34400, 3]
     
-    intr_inv_ref = ref_proj[0, 1, :3, :3].inverse()
+    # intr_inv_ref = ref_proj[0, 1, :3, :3].inverse()
+    intr = ref_proj[0, 1, :3, :3]#.inverse()
 
     homgens = torch.ones((b, 1, n_points)).to(depth_values)
     
-    points[:, :, 0] *= zz[:, :, 0]
-    points[:, :, 1] *= zz[:, :, 0]
+    cx, cy, fx, fy = intr[0, 2], intr[1, 2], intr[0, 0], intr[1, 1]
 
-    points_c = torch.matmul(intr_inv_ref, torch.transpose(points, dim0=1, dim1=2)) # [32, 3, 34400]
+    print(points[...,0].shape, zz.shape)
+    X = (points[..., 0] - cx) * zz[..., 0] / fx
+    # points[:, :, 1] *= zz[:, :, 0]
+    Y = (points[..., 1] - cy) * zz[..., 0] / fy
+    Z = zz[..., 0]
+
+    # points_c = torch.stack([X, Y, Z], dim=-1)
+    points_c = torch.transpose(torch.stack([X, Y, Z], dim=-1), dim0=1, dim1=2)
+    print(f"points_c: {points_c.shape}")
+
+    # points_c = torch.matmul(intr_inv_ref, torch.transpose(points, dim0=1, dim1=2)) # [32, 3, 34400]
     points_c = torch.cat((points_c, homgens), dim=1)  # [32, 4, 34400]
 
-    extr = ref_proj[0, 0, :3, :4]
+    extr = ref_proj[0, 0, :4, :4].inverse()[:3,:4]
     points_w = torch.matmul(extr, points_c) # [32, 3, 34400]
     points_w = torch.transpose(points_w, dim0=1, dim1=2)[...,:3] # [32, 34400, 3]
 
-    points = points_w.reshape(-1,3).to(depth_values)
+    points = points_w.reshape(-1,3).to(depth_values).detach().cpu()
+    # points = points_c.reshape(-1,3).to(depth_values).detach().cpu()
+    # points = points + torch.tensor(min_coords)
+    torch.save(intr, "/app/MVSFormerPlusPlus/bnvlogs/intr.pt")
+    torch.save(extr, "/app/MVSFormerPlusPlus/bnvlogs/extr.pt")
     return points
+
+def idw_interpolate(bnv_pp, bnv_feats, cv_pp):
+    dists = torch.cdist(bnv_pp, cv_pp)
+    weights = 1.0 / (dists**2 + 1e-10)
+    weights /= weights.sum(dim=0, keepdim=True)
+    interp_feats = torch.matmul(bnv_feats.T, weights).T
+    return interp_feats
 
 
 def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):
@@ -527,10 +549,10 @@ def get_parameter_groups(opt_args, model, freeze_vit=None):
     return param_groups
 
 
-def init_model(config):
+def init_model(config, bnvconfig):
     if 'DINOv2' in config['arch']['args']['model_type']:
         from models.networks.DINOv2_mvsformer_model import DINOv2MVSNet
-        model = DINOv2MVSNet(config['arch']['args'])
+        model = DINOv2MVSNet(config['arch']['args'], bnvconfig)
     elif config['arch']['args']['model_type'] == 'casmvs':
         from models.networks.casmvs_model import CasMVSNet
         model = CasMVSNet(config['arch']['args'])

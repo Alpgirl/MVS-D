@@ -490,6 +490,7 @@ class SparseVolume:
             dimensions, voxel_size)
         self.device = device
         self.dimensions = dimensions
+        self.capacity = capacity
         self.voxel_size = voxel_size
         self.o3c_device = o3c.Device(device)
         self.min_coords = torch.from_numpy(min_coords).float().to(device)
@@ -497,7 +498,7 @@ class SparseVolume:
         self.n_xyz = torch.from_numpy(np.asarray(n_xyz)).long().to(device)
         self.n_feats = n_feats
         self.min_pts_in_grid = min_pts_in_grid
-        self.reset(capacity)
+        self.reset(self.capacity)
 
         self.avg_n_pts = 0
         self.n_pts_list = []

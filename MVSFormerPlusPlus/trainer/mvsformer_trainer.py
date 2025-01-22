@@ -14,7 +14,7 @@ from utils import *
 from pytorch_lightning import seed_everything
 from bnv_fusion.src.utils import hydra_utils
 from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
-from bnv_fusion.src.models.sparse_volume import SparseVolume
+# from bnv_fusion.src.models.sparse_volume import SparseVolume
 from bnv_fusion.src.run_e2e import NeuralMap
 
 
@@ -112,7 +112,7 @@ class Trainer(BaseTrainer):
             sensor_data = {}
 
         # prepare config
-        if self.bnvconfig.trainer.__check_atr__("seed"):
+        if self.bnvconfig.trainer.__check_attr__("seed"):
             seed_everything(self.bnvconfig.trainer.seed)
 
         # initialize model
@@ -124,7 +124,7 @@ class Trainer(BaseTrainer):
         pointnet_model.cuda()
         pointnet_model.freeze()
 
-        # initialize volume object
+        # # initialize volume object
         print("initializing volume object")
         neural_map = NeuralMap(
             self.dimensions,
@@ -215,17 +215,17 @@ class Trainer(BaseTrainer):
                         mask_ms_tmp[k] = mask_ms[k][b_start:b_end]
                     
                     if self.rgbd:
-                        sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample, b_start, b_end)
+                        sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda, b_start, b_end)
                     else:
                         sensor_data, pointnet_model, neural_map = None, None, None
 
                     if self.fp16:
                         with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
 
-                            outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map)
+                            outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
                     else:
 
-                        outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map)
+                        outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
 
                     ## DEBUG FOR BNV Fusion features!!
                     raise

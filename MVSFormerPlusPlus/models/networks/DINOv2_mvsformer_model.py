@@ -5,6 +5,10 @@ import os
 from models.position_encoding import get_position_3d
 from models.FMT import FMT_with_pathway
 import pdb
+# from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
+from bnv_fusion.src.models.sparse_volume import SparseVolume
+from bnv_fusion.src.run_e2e import NeuralMap
+import numpy as np
 
 
 Align_Corners_Range = False
@@ -24,10 +28,11 @@ autocast = torch.cuda.amp.autocast if torch.__version__ >= '1.6.0' else identity
 
 
 class DINOv2MVSNet(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, bnvconfig):
         super(DINOv2MVSNet, self).__init__()
         self.args = args
         self.rgbd = args.get('rgbd', False)
+        self.bnvconfig = bnvconfig
         self.ndepths = args['ndepths']
         self.depth_interals_ratio = args['depth_interals_ratio']
         self.inverse_depth = args.get('inverse_depth', False)
@@ -53,21 +58,68 @@ class DINOv2MVSNet(nn.Module):
         else:
             print('!!!No weight in', self.vit_args['vit_path'], 'testing should neglect this.')
 
-        self.fusions = nn.ModuleList([StageNet(args, self.ndepths[i], i) for i in range(len(self.ndepths))])
+        self.fusions = nn.ModuleList([StageNet(args, bnvconfig, self.ndepths[i], i) for i in range(len(self.ndepths))])
 
 
-    def extract_depth_features(self, sensor_data, neural_map, pointnet_model):
-        print(sensor_data["depths"].shape)
+    def extract_depth_features(self, sensor_data, pointnet_model, neural_map):#, dimensions):
+        # print(sensor_data["depths"].shape)
         B, V = sensor_data["depths"].shape[:2]
-        print(f"B={B}, V={V}")
-        print(sensor_data["input_pts"][0][0].shape, len(sensor_data["input_pts"][0]), len(sensor_data["input_pts"]))
+        batch_act_coords, batch_features, batch_weights, batch_num_hits = [], [], [], []
+        # print(sensor_data["input_pts"][0][0].shape, len(sensor_data["input_pts"][0]), len(sensor_data["input_pts"]))
 
         ## TO CONTINUE: INTEGRATE_FRAME()
-        # frame = {
-        #     "input_pts": sensor_data["input_pts"][]
-        # }
-        # neural_map.integrate()
-        return
+        for b in range(B):
+            # initialize volume object
+            print("initializing volume object")
+            # neural_map = NeuralMap(
+            #     dimensions,
+            #     self.bnvconfig,
+            #     pointnet_model,
+            #     working_dir="")
+            
+            for v in range(V):
+                frame = {
+                    "input_pts": torch.unsqueeze(sensor_data["input_pts"][b][v], dim=0)
+                }
+                neural_map.integrate(frame)
+                print(f"Element {b}, which is view {v}, is integrated in Neural Volume")
+
+            active_coordinates, features, weights, num_hits = neural_map.volume.to_tensor()
+            print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
+            active_coordinates_rescaled = active_coordinates * self.bnvconfig.model.voxel_size + neural_map.volume.min_coords
+
+            batch_act_coords.append(active_coordinates_rescaled.detach().cpu())
+            batch_features.append(features.detach().cpu())
+            batch_weights.append(weights.detach().cpu())
+            batch_num_hits.append(num_hits.detach().cpu())
+
+            neural_map.volume.reset(neural_map.volume.capacity)
+
+        
+        depth_features = {
+            "active_coordinates": batch_act_coords,
+            "features": batch_features,
+            "weights": batch_weights,
+            "num_hits": batch_num_hits,
+        }
+        
+
+        # Extract active coords to ply
+        # mesh = trimesh.Trimesh(vertices=batch_act_coords[0].detach().cpu().numpy()) # take the first ref+source views
+        # output_path = os.path.join(os.getcwd(), "depth_feats_no_shift.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # mesh = trimesh.Trimesh(vertices=batch_act_coords[3].detach().cpu().numpy()) # take the first ref+source views
+        # output_path = os.path.join(os.getcwd(), "depth_feats_3_no_shift.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # # save points for interpolation
+        # torch.save(active_coordinates_rescaled.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
+        # torch.save(features.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/feats.pt")
+        # print("Tensors are successfully saved")
+        return depth_features
     
 
     def vit_forward(self, vit_imgs, B, V, vit_h, vit_w, Fmats=None):
@@ -84,7 +136,7 @@ class DINOv2MVSNet(nn.Module):
         return vit_feat
     
 
-    def forward(self, imgs, proj_matrices, depth_values, sensor_data, pointnet_model, neural_map, tmp=[5., 5., 5., 1.]):
+    def forward(self, imgs, proj_matrices, depth_values, sensor_data, pointnet_model, neural_map, dimensions, tmp=[5., 5., 5., 1.]): # dimensions
         B, V, H, W = imgs.shape[0], imgs.shape[1], imgs.shape[3], imgs.shape[4]
         depth_interval = depth_values[:, 1] - depth_values[:, 0] # 0.002
         
@@ -140,9 +192,10 @@ class DINOv2MVSNet(nn.Module):
                         'stage4': feat4.reshape(B, V, feat4.shape[1], feat4.shape[2], feat4.shape[3])}
 
         if self.rgbd:
-            self.extract_depth_features(sensor_data, pointnet_model, neural_map)
+            depth_features = self.extract_depth_features(sensor_data, pointnet_model, neural_map)
+        else:
+            depth_features = None
 
-        raise
         features = self.FMT_module.forward(features)
 
         outputs = {}
@@ -189,7 +242,7 @@ class DINOv2MVSNet(nn.Module):
             else:
                 position3d = None
 
-            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples,
+            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples, dimensions,
                                                             tmp=tmp[stage_idx], position3d=position3d)
             outputs["stage{}".format(stage_idx + 1)] = outputs_stage
             depth_conf = outputs_stage['photometric_confidence']
