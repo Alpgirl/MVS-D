@@ -347,7 +347,6 @@ def global_pcd_batch(depth_values, ref_proj):
     
     cx, cy, fx, fy = intr[0, 2], intr[1, 2], intr[0, 0], intr[1, 1]
 
-    print(points[...,0].shape, zz.shape)
     X = (points[..., 0] - cx) * zz[..., 0] / fx
     # points[:, :, 1] *= zz[:, :, 0]
     Y = (points[..., 1] - cy) * zz[..., 0] / fy
@@ -367,8 +366,8 @@ def global_pcd_batch(depth_values, ref_proj):
     points = points_w.reshape(-1,3).to(depth_values).detach().cpu()
     # points = points_c.reshape(-1,3).to(depth_values).detach().cpu()
     # points = points + torch.tensor(min_coords)
-    torch.save(intr, "/app/MVSFormerPlusPlus/bnvlogs/intr.pt")
-    torch.save(extr, "/app/MVSFormerPlusPlus/bnvlogs/extr.pt")
+    # torch.save(intr, "/app/MVSFormerPlusPlus/bnvlogs/intr.pt")
+    # torch.save(extr, "/app/MVSFormerPlusPlus/bnvlogs/extr.pt")
     return points
 
 def idw_interpolate(bnv_pp, bnv_feats, cv_pp):
@@ -377,6 +376,14 @@ def idw_interpolate(bnv_pp, bnv_feats, cv_pp):
     weights /= weights.sum(dim=0, keepdim=True)
     interp_feats = torch.matmul(bnv_feats.T, weights).T
     return interp_feats
+
+
+def nearest_neighbor_interpolation(points1, values1, points2):
+    # points1: (N, 3), values1: (N, C), points2: (M, 3)
+    distances = torch.cdist(points1, points2)  # Compute pairwise distances (N, M)
+    nearest_indices = torch.argmin(distances, dim=0)  # Find nearest neighbor indices (M,)
+    interpolated_values = values1[nearest_indices]  # Interpolate (M, C)
+    return interpolated_values
 
 
 def generate_pointcloud(rgb, depth, ply_file, intr, scale=1.0):

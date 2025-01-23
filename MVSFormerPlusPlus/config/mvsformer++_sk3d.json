@@ -11,6 +11,7 @@
             "model_type": "DINOv2-base",
             "freeze_vit": true,
             "rgbd": true,
+            "use_adapter": true,
             "rescale": 0.4375,
             "vit_ch": 768,
             "out_ch": 64,

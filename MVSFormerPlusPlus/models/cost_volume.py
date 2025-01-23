@@ -5,7 +5,7 @@ from models.module import *
 import torch.utils.checkpoint as cp
 import trimesh
 import os
-from utils import global_pcd_batch
+from utils import global_pcd_batch, nearest_neighbor_interpolation
 
 class identity_with(object):
     def __init__(self, enabled=True):
@@ -51,8 +51,11 @@ class StageNet(nn.Module):
                 self.cost_reg = CostRegNet3D(in_channels, in_channels)
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
+        self.use_adapter = args.get("use_adapter", False)
+        print("cost volume feature size:", bnvconfig.model.feature_vector_size, args["feat_chs"][0])
+        self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
 
-    def forward(self, features, proj_matrices, depth_values, dimensions, tmp, position3d=None): #dimensions
+    def forward(self, features, proj_matrices, depth_values, depth_features, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]
         src_feats = features[:, 1:] # [1, V-1, 64, 172, 200]
         src_feats = torch.unbind(src_feats, dim=1) # tuple of [1, 64, 172, 200], len=9
@@ -123,6 +126,24 @@ class StageNet(nn.Module):
         # # save tensor
         # torch.save(points, "/app/MVSFormerPlusPlus/bnvlogs/cv_points.pt")
         # print("Tensors are successfully saved")
+        
+        if depth_features is not None:
+            depth_feat_res = []
+            for i in range(depth_values.shape[0]):
+                depth_features_interpolated = nearest_neighbor_interpolation(
+                    depth_features["active_coordinates"][i], 
+                    depth_features["features"][i],
+                    points
+                )
+                depth_feat_res.append(depth_features_interpolated)
+            depth_volume = torch.reshape(torch.transpose(torch.stack(depth_feat_res, dim=0), dim0=1, dim1=2), volume_mean.shape).cuda()
+            print(depth_volume.device, volume_mean.device)
+            volume_mean = torch.cat([volume_mean, depth_volume], dim=1)
+            print(volume_mean.shape)
+        
+        if self.use_adapter:
+            volume_mean_adapt = self.adapter(volume_mean)
+            print(volume_mean_adapt.shape)
 
         raise
         ## DEBUG

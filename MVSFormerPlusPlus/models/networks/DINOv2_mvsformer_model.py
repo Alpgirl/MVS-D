@@ -242,7 +242,7 @@ class DINOv2MVSNet(nn.Module):
             else:
                 position3d = None
 
-            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples, dimensions,
+            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples, depth_features,
                                                             tmp=tmp[stage_idx], position3d=position3d)
             outputs["stage{}".format(stage_idx + 1)] = outputs_stage
             depth_conf = outputs_stage['photometric_confidence']
