@@ -5,7 +5,126 @@ from models.module import *
 import torch.utils.checkpoint as cp
 import trimesh
 import os
-from utils import global_pcd_batch, nearest_neighbor_interpolation
+from utils import global_pcd_batch
+
+
+class GridInterpolation(object):
+    def __init__(self, n_xyz, bound_min, voxel_size, n_feats, dtype, target_hw, target_d):
+        self.resolution = n_xyz
+        self.bound_min = bound_min
+        self.voxel_size = voxel_size
+        self.n_feats = n_feats
+        self.dtype = dtype
+        self.target_hw = target_hw
+        self.target_d = target_d
+
+        self.full_pp_feats = self.initialize_pp_feat()
+        self.full_pp_coord = self.initialize_pp_coord()
+
+    
+    def initialize_pp_feat(self):
+        return torch.zeros((torch.prod(self.resolution), self.n_feats), dtype=self.dtype, device="cuda")
+    
+    
+    def initialize_pp_coord(self):
+        res_x, res_y, res_z = [int(v) for v in self.resolution]
+
+        # represent the full voxel grid as points (N,3)
+        xx, yy, zz = torch.meshgrid([torch.arange(res_x, dtype=self.dtype), 
+                                     torch.arange(res_y, dtype=self.dtype), 
+                                     torch.arange(res_z, dtype=self.dtype)])
+        full_pp_coord = torch.stack([xx,yy,zz], axis=-1).reshape(-1,3).cuda()
+
+        # rescale and shift the full voxel grid (from bnv)
+        full_pp_coord = full_pp_coord * self.voxel_size + self.bound_min
+
+        mesh = trimesh.Trimesh(vertices=full_pp_coord.cpu().numpy())
+        output_path = os.path.join(os.getcwd(), "full_pp_coord.ply")
+        mesh.export(output_path)
+        print(f"Mesh exported successfully to {output_path}")
+        return full_pp_coord
+    
+
+    def interpolate_feats(self, bnv_pp_ids, bnv_pp_feats, depth_pp_hyp):
+        bnv_pp_ids = bnv_pp_ids.clone().cuda()
+        bnv_pp_feats = bnv_pp_feats.clone().to(self.dtype).cuda()
+        depth_pp_hyp = depth_pp_hyp.clone().to(self.dtype)
+
+        # flatten act_ids
+        bnv_flat_ids = bnv_pp_ids[..., 0] * self.resolution[1] * self.resolution[2] + \
+                bnv_pp_ids[..., 1] * self.resolution[2] + bnv_pp_ids[..., 2]
+
+        # fill known features
+        self.full_pp_feats[bnv_flat_ids] = bnv_pp_feats
+
+        # reshape and permute features to match the input to grid sample
+        full_grid_feats_resh = self.full_pp_feats.reshape(1, self.resolution[0], self.resolution[1], self.resolution[2], self.n_feats) # 1, Nx, Ny, Nz, 3
+        full_grid_feats_perm = full_grid_feats_resh.permute(0, 4, 3, 2, 1) # 1, 3, Nz, Ny, Nx
+
+        # normalize the grid to [-1,1] relatively full grid
+        mx, my, mz = self.bound_min
+        x_max, y_max, z_max = mx + self.resolution[0] * self.voxel_size, my + self.resolution[1] * self.voxel_size, mz + self.resolution[2] * self.voxel_size
+
+        depth_pp_hyp[...,0] = 2 * (depth_pp_hyp[...,0] - mx) / (x_max - mx) - 1
+        depth_pp_hyp[...,1] = 2 * (depth_pp_hyp[...,1] - my) / (y_max - my) - 1
+        depth_pp_hyp[...,2] = 2 * (depth_pp_hyp[...,2] - mz) / (z_max - mz) - 1
+
+        # reshape hyp_pp to the volume
+        depth_grid_hyp = depth_pp_hyp.reshape(1, self.target_d, self.target_hw[0], self.target_hw[1],  3) 
+
+        # interpolate
+        with torch.no_grad():
+            output = torch.nn.functional.grid_sample(
+                full_grid_feats_perm,  # Input volume (N, C, Din, Hin, Win)
+                depth_grid_hyp,  # Grid coordinates (N, Dout, Hout, Wout, 3)
+                mode='bilinear',  # Interpolation mode
+                padding_mode='zeros',  # Padding mode for out-of-bound points
+                align_corners=False  # Align corners for consistent interpolation
+            )
+
+        return output
+    
+
+    def interpolate_coords(self, depth_pp_hyp):
+        depth_pp_hyp = depth_pp_hyp.clone().to(self.dtype)
+
+        # reshape and permute features to match the input to grid sample
+        full_grid_coord_resh = self.full_pp_coord.reshape(1, self.resolution[0], self.resolution[1], self.resolution[2], 3) # 1, Nx, Ny, Nz, 3
+        full_grid_coord_perm = full_grid_coord_resh.permute(0, 4, 3, 2, 1) # 1, 3, Nz, Ny, Nx
+
+        # normalize the grid to [-1,1] relatively full grid
+        mx, my, mz = self.bound_min
+        x_max, y_max, z_max = mx + self.resolution[0] * self.voxel_size, my + self.resolution[1] * self.voxel_size, mz + self.resolution[2] * self.voxel_size
+
+        depth_pp_hyp[...,0] = 2 * (depth_pp_hyp[...,0] - mx) / (x_max - mx) - 1
+        depth_pp_hyp[...,1] = 2 * (depth_pp_hyp[...,1] - my) / (y_max - my) - 1
+        depth_pp_hyp[...,2] = 2 * (depth_pp_hyp[...,2] - mz) / (z_max - mz) - 1
+
+        # shift the full grid
+        full_grid_coord_perm += self.voxel_size / 2
+
+        # reshape hyp_pp to the volume
+        depth_grid_hyp = depth_pp_hyp.reshape(1, self.target_d, self.target_hw[0], self.target_hw[1],  3) 
+
+        # filter such that avoid points near the border (boundary effects)
+        is_valid = (depth_grid_hyp <= 0.9).all(-1) & (depth_grid_hyp >= -0.9).all(-1)
+
+        # interpolate
+        with torch.no_grad():
+            output = torch.nn.functional.grid_sample(
+                full_grid_coord_perm,  # Input volume (1, C, Din, Hin, Win)
+                depth_grid_hyp[is_valid].unsqueeze(0).unsqueeze(1).unsqueeze(2),  # Grid coordinates (1, 1, 1, N, 3)
+                mode='bilinear',  # Interpolation mode
+                padding_mode='zeros',  # Padding mode for out-of-bound points
+                align_corners=False  # Align corners for consistent interpolation
+            )
+
+        # reshape resampled coordinates back to points (N,3)
+        output_pp = (output.permute(0, 2, 3, 4, 1)).reshape(-1,3)
+
+        return output_pp
+
+
 
 class identity_with(object):
     def __init__(self, enabled=True):
@@ -52,10 +171,10 @@ class StageNet(nn.Module):
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
         self.use_adapter = args.get("use_adapter", False)
-        print("cost volume feature size:", bnvconfig.model.feature_vector_size, args["feat_chs"][0])
-        self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
+        # print("cost volume feature size:", bnvconfig.model.feature_vector_size, args["feat_chs"][0])
+        # self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
 
-    def forward(self, features, proj_matrices, depth_values, depth_features, tmp, position3d=None): #dimensions
+    def forward(self, features, proj_matrices, depth_values, depth_features, interpolater, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]
         src_feats = features[:, 1:] # [1, V-1, 64, 172, 200]
         src_feats = torch.unbind(src_feats, dim=1) # tuple of [1, 64, 172, 200], len=9
@@ -109,43 +228,73 @@ class StageNet(nn.Module):
 
         # VISUALIZE COST VOLUME
         ## DEBUG
-        # convert cost volume to pcd3d
+        # # convert cost volume to pcd3d
         print(f"depth_values: {depth_values.shape}")
         print(f"cot volume: {volume_mean.shape}")
-        print(depth_values[0][5], depth_values[1][5])
+        # print(depth_values[0][5], depth_values[1][5])
 
         # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
-        points = global_pcd_batch(depth_values, ref_proj)
+        print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
+        points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
+        print(f"POINTS DTYPE: {points.dtype}")
 
-        # mesh = trimesh.Trimesh(vertices=points.numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
-        # # # mesh.vertex_normals = normals
-        # output_path = os.path.join(os.getcwd(), "act_coord_extr.ply")
+        inter_pp = []
+
+        for b in range(B):
+            pp = interpolater.interpolate_feats(depth_features["active_coordinates"][b],
+                                                depth_features["features"][b],
+                                                points[b,])
+            inter_pp.append(pp[0])
+        
+        bnv_grid_feats = torch.stack(inter_pp, axis=0)
+        print(bnv_grid_feats.shape)
+
+        # mesh = trimesh.Trimesh(vertices=points[0,].cpu().numpy())
+        # output_path = os.path.join(os.getcwd(), "depth_hyp.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # pp = interpolater.interpolate_coords(points[0,])
+        # print(f"PP DTYPE: {pp.dtype}")
+        # print(f"PP SHAPE: {pp.shape}")
+
+
+        # mesh = trimesh.Trimesh(vertices=pp.cpu().numpy())
+        # output_path = os.path.join(os.getcwd(), "interp_pp.ply")
         # mesh.export(output_path)
         # print(f"Mesh exported successfully to {output_path}")
 
         # # save tensor
-        # torch.save(points, "/app/MVSFormerPlusPlus/bnvlogs/cv_points.pt")
-        # print("Tensors are successfully saved")
-        
-        if depth_features is not None:
-            depth_feat_res = []
-            for i in range(depth_values.shape[0]):
-                depth_features_interpolated = nearest_neighbor_interpolation(
-                    depth_features["active_coordinates"][i], 
-                    depth_features["features"][i],
-                    points
-                )
-                depth_feat_res.append(depth_features_interpolated)
-            depth_volume = torch.reshape(torch.transpose(torch.stack(depth_feat_res, dim=0), dim0=1, dim1=2), volume_mean.shape).cuda()
-            print(depth_volume.device, volume_mean.device)
-            volume_mean = torch.cat([volume_mean, depth_volume], dim=1)
-            print(volume_mean.shape)
-        
-        if self.use_adapter:
-            volume_mean_adapt = self.adapter(volume_mean)
-            print(volume_mean_adapt.shape)
+        # torch.save(points, "/app/MVSFormerPlusPlus/bnvlogs/depth_hyp.pt")
+
+        # mesh = trimesh.Trimesh(vertices=depth_features["active_coordinates"][1].numpy())
+        # output_path = os.path.join(os.getcwd(), "bnv_feats_new.ply")
+        # mesh.export(output_path)
+        # torch.save(depth_features["active_coordinates"][1], "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
+
 
         raise
+        # print("Tensors are successfully saved")
+        
+        # if depth_features is not None:
+        #     depth_feat_res = []
+        #     for i in range(depth_values.shape[0]):
+        #         depth_features_interpolated = nearest_neighbor_interpolation(
+        #             depth_features["active_coordinates"][i], 
+        #             depth_features["features"][i],
+        #             points
+        #         )
+        #         depth_feat_res.append(depth_features_interpolated)
+        #     depth_volume = torch.reshape(torch.transpose(torch.stack(depth_feat_res, dim=0), dim0=1, dim1=2), volume_mean.shape).cuda()
+        #     print(depth_volume.device, volume_mean.device)
+        #     volume_mean = torch.cat([volume_mean, depth_volume], dim=1)
+        #     print(volume_mean.shape)
+        
+        # if self.use_adapter:
+        #     volume_mean_adapt = self.adapter(volume_mean)
+        #     print(volume_mean_adapt.shape)
+
+        # raise
         ## DEBUG
 
         cost_reg = self.cost_reg(volume_mean, position3d) # [1, 1, D, 172, 200]

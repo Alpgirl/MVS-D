@@ -102,7 +102,7 @@ class NeuralMap:
                 fine_coords,
                 fine_feats,
                 fine_weights)
-            # tsdf fusion
+            # # tsdf fusion
             # rgbd = frame['rgbd'].cpu().numpy() # [1, 4, 1952, 2368]
             # depth_map = rgbd[0, -1, :, :]
             # rgb = (rgbd[0, :3, :, :].transpose(1, 2, 0) + 0.5) * 255.
@@ -275,25 +275,22 @@ def main(config: DictConfig):
         if (idx+1) % 2 == 0:
             torch.cuda.empty_cache()
 
-        # if idx == 4:
-            # break
-
-        # if config.model.mode == "demo":
-        #     if (idx) % config.model.optim_interval == 0:
-        #         last_frame = max(0, len(neural_map.frames) - config.model.optim_interval)
-        #         n_iters = min(len(neural_map.frames), config.model.optim_interval) * neural_map.skip_images
-        #         timer.start("global")
-        #         neural_map.optimize(n_iters=n_iters, last_frame=last_frame)
-        #         timer.log("global")
-        #         mesh = neural_map.extract_mesh()
-        #         mesh = o3d_helper.post_process_mesh(mesh)
-        #         mesh_out_path = os.path.join(neural_map.working_dir, f"{idx}.ply")
-        #         mesh.export(mesh_out_path)
+        if config.model.mode == "demo":
+            if (idx) % config.model.optim_interval == 0:
+                last_frame = max(0, len(neural_map.frames) - config.model.optim_interval)
+                n_iters = min(len(neural_map.frames), config.model.optim_interval) * neural_map.skip_images
+                timer.start("global")
+                neural_map.optimize(n_iters=n_iters, last_frame=last_frame)
+                timer.log("global")
+                mesh = neural_map.extract_mesh()
+                mesh = o3d_helper.post_process_mesh(mesh)
+                mesh_out_path = os.path.join(neural_map.working_dir, f"{idx}.ply")
+                mesh.export(mesh_out_path)
     active_coordinates, features, weights, num_hits = neural_map.volume.to_tensor()
-    print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
-    print(torch.min(active_coordinates), torch.max(active_coordinates))
+    # print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
+    # print(torch.min(active_coordinates), torch.max(active_coordinates))
 
-    active_coordinates_rescaled = active_coordinates * config.model.voxel_size + neural_map.volume.min_coords
+    # active_coordinates_rescaled = active_coordinates * config.model.voxel_size + neural_map.volume.min_coords
 
     # mesh = trimesh.Trimesh(vertices=active_coordinates_rescaled.detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
     # # mesh.vertex_normals = normals
@@ -301,22 +298,22 @@ def main(config: DictConfig):
     # mesh.export(output_path)
     # print(f"Mesh exported successfully to {output_path}")
     mesh = neural_map.extract_mesh()
-    # mesh.export(os.path.join(neural_map.working_dir, "before_optim.ply"))
-    # global_steps = int(len(neural_map.frames) * neural_map.skip_images)
-    # global_steps = global_steps * 2 if config.model.mode != "demo" else global_steps
-    # timer.start("global")
-    # neural_map.optimize(n_iters=global_steps, last_frame=-1)
-    # timer.log("global")
-    # for n in ["local", "global"]:
-    #     print(f"speed on {n} fusion: {global_steps / timer.times[n]} fps")
+    mesh.export(os.path.join(neural_map.working_dir, "before_optim.ply"))
+    global_steps = int(len(neural_map.frames) * neural_map.skip_images)
+    global_steps = global_steps * 2 if config.model.mode != "demo" else global_steps
+    timer.start("global")
+    neural_map.optimize(n_iters=global_steps, last_frame=-1)
+    timer.log("global")
+    for n in ["local", "global"]:
+        print(f"speed on {n} fusion: {global_steps / timer.times[n]} fps")
 
-    # neural_map.volume.print_statistic()
+    neural_map.volume.print_statistic()
 
-    # mesh = neural_map.extract_mesh()
-    # mesh = o3d_helper.post_process_mesh(mesh, vertex_threshold=neural_map.voxel_size / 4)
-    # mesh_out_path = os.path.join(neural_map.working_dir, "final.ply")
-    # mesh.export(mesh_out_path)
-    # neural_map.save()
+    mesh = neural_map.extract_mesh()
+    mesh = o3d_helper.post_process_mesh(mesh, vertex_threshold=neural_map.voxel_size / 4)
+    mesh_out_path = os.path.join(neural_map.working_dir, "final.ply")
+    mesh.export(mesh_out_path)
+    neural_map.save()
 
 
 if __name__ == "__main__":

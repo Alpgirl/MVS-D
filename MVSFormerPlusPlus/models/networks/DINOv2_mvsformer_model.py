@@ -28,7 +28,7 @@ autocast = torch.cuda.amp.autocast if torch.__version__ >= '1.6.0' else identity
 
 
 class DINOv2MVSNet(nn.Module):
-    def __init__(self, args, bnvconfig):
+    def __init__(self, args, bnvconfig=None):
         super(DINOv2MVSNet, self).__init__()
         self.args = args
         self.rgbd = args.get('rgbd', False)
@@ -70,7 +70,7 @@ class DINOv2MVSNet(nn.Module):
         ## TO CONTINUE: INTEGRATE_FRAME()
         for b in range(B):
             # initialize volume object
-            print("initializing volume object")
+            # print("initializing volume object")
             # neural_map = NeuralMap(
             #     dimensions,
             #     self.bnvconfig,
@@ -86,21 +86,24 @@ class DINOv2MVSNet(nn.Module):
 
             active_coordinates, features, weights, num_hits = neural_map.volume.to_tensor()
             print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
-            active_coordinates_rescaled = active_coordinates * self.bnvconfig.model.voxel_size + neural_map.volume.min_coords
+            # active_coordinates_rescaled = active_coordinates * self.bnvconfig.model.voxel_size + neural_map.volume.min_coords
 
-            batch_act_coords.append(active_coordinates_rescaled.detach().cpu())
+            batch_act_coords.append(active_coordinates.detach().cpu())
             batch_features.append(features.detach().cpu())
-            batch_weights.append(weights.detach().cpu())
-            batch_num_hits.append(num_hits.detach().cpu())
+            # batch_weights.append(weights.detach().cpu())
+            # batch_num_hits.append(num_hits.detach().cpu())
 
             neural_map.volume.reset(neural_map.volume.capacity)
+            # break
 
         
         depth_features = {
             "active_coordinates": batch_act_coords,
             "features": batch_features,
-            "weights": batch_weights,
-            "num_hits": batch_num_hits,
+            # "voxel_size": self.bnvconfig.model.voxel_size,
+            # "shift": neural_map.volume.min_coords
+            # "weights": batch_weights,
+            # "num_hits": batch_num_hits,
         }
         
 
@@ -116,7 +119,7 @@ class DINOv2MVSNet(nn.Module):
         # print(f"Mesh exported successfully to {output_path}")
 
         # # save points for interpolation
-        # torch.save(active_coordinates_rescaled.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
+        # torch.save(active_coordinates.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
         # torch.save(features.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/feats.pt")
         # print("Tensors are successfully saved")
         return depth_features
@@ -136,7 +139,7 @@ class DINOv2MVSNet(nn.Module):
         return vit_feat
     
 
-    def forward(self, imgs, proj_matrices, depth_values, sensor_data, pointnet_model, neural_map, dimensions, tmp=[5., 5., 5., 1.]): # dimensions
+    def forward(self, imgs, proj_matrices, depth_values, sensor_data=None, pointnet_model=None, neural_map=None, dimensions=None, tmp=[5., 5., 5., 1.]): # dimensions
         B, V, H, W = imgs.shape[0], imgs.shape[1], imgs.shape[3], imgs.shape[4]
         depth_interval = depth_values[:, 1] - depth_values[:, 0] # 0.002
         
@@ -193,8 +196,16 @@ class DINOv2MVSNet(nn.Module):
 
         if self.rgbd:
             depth_features = self.extract_depth_features(sensor_data, pointnet_model, neural_map)
+            interpolater = GridInterpolation(neural_map.volume.n_xyz,
+                                            neural_map.volume.min_coords, 
+                                            self.bnvconfig.model.voxel_size,
+                                            self.bnvconfig.model.feature_vector_size,
+                                            imgs.dtype,
+                                            features["stage1"].shape[-2:],
+                                            self.ndepths[0], # stage1
+                                            )
         else:
-            depth_features = None
+            depth_features, interpolater = None, None
 
         features = self.FMT_module.forward(features)
 
@@ -217,6 +228,22 @@ class DINOv2MVSNet(nn.Module):
                 else:
                     depth_samples = init_range(depth_values, self.ndepths[stage_idx], imgs.device,
                                                              imgs.dtype, H, W)
+                # depth_pp = []
+                # for b in range(B):
+                #     pp = global_pcd_batch(depth_samples, proj_matrices_stage[b, 0,].unsqueeze(0))
+                #     depth_pp.append(pp)
+                # depth_pp = torch.cat(depth_pp, axis=0)
+                # print(depth_pp.shape)
+
+                # mesh = trimesh.Trimesh(vertices=depth_pp.cpu().numpy())
+                # output_path = os.path.join(os.getcwd(), "depth_pp.ply")
+                # mesh.export(output_path)
+                # print(f"Mesh exported successfully to {output_path}")
+                # obj_cam = camSk3DDataset()
+                # print(obj_cam[0])
+                # torch.save(depth_samples, "depth_samples.pt")
+                # raise
+
             else:
                 if self.inverse_depth: # true
                     depth_samples = schedule_inverse_range(outputs_stage['depth'].detach(),
@@ -242,7 +269,7 @@ class DINOv2MVSNet(nn.Module):
             else:
                 position3d = None
 
-            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples, depth_features,
+            outputs_stage = self.fusions[stage_idx].forward(features_stage, proj_matrices_stage, depth_samples, depth_features, interpolater,
                                                             tmp=tmp[stage_idx], position3d=position3d)
             outputs["stage{}".format(stage_idx + 1)] = outputs_stage
             depth_conf = outputs_stage['photometric_confidence']

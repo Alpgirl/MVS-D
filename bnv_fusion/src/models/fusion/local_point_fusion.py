@@ -29,8 +29,8 @@ class LitFusionPointNet(pl.LightningModule):
         self.interpolate_decode = cfg.model.nerf.interpolate_decode
         if cfg.model.tiny_cuda: # True
             self.pointnet_backbone = pointnet_utils.tcnnPointNetEncoder(
-                self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.point_net)) #**cfg.model.point_net)
-            self.nerf = tcnnNeRFModel(self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.nerf))#**cfg.model.nerf)
+                self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.point_net)) #**cfg.model.point_net) 
+            self.nerf = tcnnNeRFModel(self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.nerf)) #**cfg.model.nerf) 
         else:
             self.pointnet_backbone = pointnet_utils.PointNetEncoder(
                 self.feat_dims, **cfg.model.point_net)
@@ -87,7 +87,8 @@ class LitFusionPointNet(pl.LightningModule):
         voxel_size,
         return_dense=True
         ):
-        res_x, res_y, res_z = [int(v) for v in n_xyz]
+        res_x, res_y, res_z = [int(v) for v in n_xyz] # the amount of voxels over the volume per axis
+        # torch.save(n_xyz, "/app/MVSFormerPlusPlus/bnvlogs/n_xyz.pt")
         in_xyz = input_pts[:, :, :3] * 1.
         in_normal = input_pts[:, :, 3:]
 
@@ -105,6 +106,20 @@ class LitFusionPointNet(pl.LightningModule):
 
         # transform xyz to the local coordinates with respect to each neighboring pixel, grid_id - indexes of neighboring points
         relative_xyz, grid_id = self.get_relative_xyz(in_xyz, bound_min, voxel_size)
+        # torch.save(grid_id, "/app/MVSFormerPlusPlus/bnvlogs/grid_id.pt")
+
+        # print(f"rel xyz: {relative_xyz[0,0,:].shape}, grid id: {grid_id.shape}, in_xyz: {in_xyz.shape}")
+        # mesh = trimesh.Trimesh(vertices=relative_xyz[0,0,:].detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # # mesh.vertex_normals = normals
+        # output_path = os.path.join(os.getcwd(), "rel_xyz.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # mesh = trimesh.Trimesh(vertices=in_xyz.reshape(-1,3).detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # # mesh.vertex_normals = normals
+        # output_path = os.path.join(os.getcwd(), "in_xyz.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
 
         grid_id = grid_id.reshape(1, -1, 3)  # [1, N, 3]
         pointnet_input = torch.cat(
@@ -126,13 +141,31 @@ class LitFusionPointNet(pl.LightningModule):
             flat_ids[0], return_inverse=True, return_counts=True)
         unique_grid_ids = voxel_utils.unflatten(unique_flat_ids, n_xyz).long()
 
+        # mesh = trimesh.Trimesh(vertices=grid_id[0].detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # # mesh.vertex_normals = normals
+        # output_path = os.path.join(os.getcwd(), "grid_id.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+
+        # print(f"unique_grid_ids: {unique_grid_ids.shape}")
+        # mesh = trimesh.Trimesh(vertices=unique_grid_ids.detach().cpu().numpy()) #, faces=trimesh.convex.convex_hull(input_pts).faces)
+        # # # mesh.vertex_normals = normals
+        # output_path = os.path.join(os.getcwd(), "fine_coords.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
+        # raise
+
         assert torch.max(unique_grid_ids[:, 0]) < res_x
         assert torch.max(unique_grid_ids[:, 1]) < res_y
         assert torch.max(unique_grid_ids[:, 2]) < res_z
         assert torch.min(unique_grid_ids) >= 0
 
         point_feats_mean = scatter_mean(point_feats, pinds.unsqueeze(0).unsqueeze(0))
-        point_feats_mean[:, :, pcounts<self.min_pts_in_grid] = 0
+        # point_feats_mean[:, :, pcounts<self.min_pts_in_grid] = 0
+        torch.save(unique_flat_ids, "/app/MVSFormerPlusPlus/bnvlogs/unique_flat_id.pt")
+        # torch.save(bound_min, "/app/MVSFormerPlusPlus/bnvlogs/bound_min.pt")
+        # torch.save(point_feats_mean, "/app/MVSFormerPlusPlus/bnvlogs/point_feats.pt")
+        # raise
 
         if return_dense: # False
             feat_grids = torch.zeros(

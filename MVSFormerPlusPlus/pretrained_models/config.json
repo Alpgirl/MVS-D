@@ -10,6 +10,7 @@
         "args": {
             "model_type": "DINOv2-base",
             "freeze_vit": true,
+            "rgbd": false,
             "rescale": 0.4375,
             "vit_ch": 768,
             "out_ch": 64,
@@ -136,7 +137,8 @@
                 "datapath": "/sk3d/",
                 "train_data_list": "lists/dtu/trainval.txt",
                 "val_data_list": "lists/dtu/test.txt",
-                "mode": "train",
+                "mode": "test",
+                "rgbd": false,
                 "nviews": 5,
                 "num_depths": 192,
                 "multi_scale": true,

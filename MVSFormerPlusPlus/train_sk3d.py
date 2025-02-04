@@ -133,7 +133,7 @@ def main(gpu, args, config, bnvconfig):
             train_dataset = Sk3DDataset(**train_dl_args)
 
             train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=rank, shuffle=True)
-
+        
         train_loader = DataLoader(train_dataset, shuffle=False, pin_memory=True, batch_size=train_dl_args['batch_size'],
                                   num_workers=train_dl_args['num_workers'], sampler=train_sampler, drop_last=True, collate_fn=custom_collate_fn) # train_dl_args['num_workers'] 
         train_data_loaders.append(train_loader)
