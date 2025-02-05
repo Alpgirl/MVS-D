@@ -12,7 +12,6 @@ from models.losses import *
 from utils import *
 
 from pytorch_lightning import seed_everything
-from bnv_fusion.src.utils import hydra_utils
 from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
 # from bnv_fusion.src.models.sparse_volume import SparseVolume
 from bnv_fusion.src.run_e2e import NeuralMap
@@ -226,9 +225,6 @@ class Trainer(BaseTrainer):
                     else:
 
                         outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
-
-                    ## DEBUG FOR BNV Fusion features!!
-                    raise
 
                     if type(self.depth_type) == list:
                         loss_dict = get_multi_stage_losses(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp, mask_ms_tmp,

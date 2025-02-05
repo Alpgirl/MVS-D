@@ -51,6 +51,28 @@ class DINOv2MVSNet(nn.Module):
         self.decoder_vit = CrossVITDecoder(self.vit_args)
         self.FMT_module = FMT_with_pathway(**args.get("FMT_config"))
 
+        # Load weights for DINO_mvsformer model
+        checkpoint = torch.load(self.args["model_path"])
+        state_dict = checkpoint["state_dict"]
+        module_prefixes = {
+                'module.encoder.': self.encoder,
+                'module.decoder.': self.decoder,
+                'module.vit.': self.vit,
+                'module.decoder_vit.': self.decoder_vit,
+                'module.FMT_module.': self.FMT_module
+        }
+        for prefix, module in module_prefixes.items():
+            # Filter and load only the weights for the current module
+            module_state_dict = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
+            module.load_state_dict(module_state_dict, strict=False)
+
+        # freeze encoder layers
+        self.rgb_encoder_freeze = args.get("rgb_encoder_freeze", False)
+        if self.rgb_encoder_freeze:
+            for feature_extractor in [self.encoder, self.decoder, self.vit, self.decoder_vit, self.FMT_module]:
+                for param in feature_extractor.parameters():
+                    param.requires_grad_(False)
+
         if os.path.exists(self.vit_args['vit_path']):
             state_dict = torch.load(self.vit_args['vit_path'], map_location='cpu')
             from utils import torch_init_model
@@ -59,6 +81,17 @@ class DINOv2MVSNet(nn.Module):
             print('!!!No weight in', self.vit_args['vit_path'], 'testing should neglect this.')
 
         self.fusions = nn.ModuleList([StageNet(args, bnvconfig, self.ndepths[i], i) for i in range(len(self.ndepths))])
+        for i, f in enumerate(self.fusions):
+            # Filter and load only the weights for the current module
+            module_state_dict = {k[len(f'module.fusions.{i}.'):]: v for k, v in state_dict.items() if k.startswith(f'module.fusions.{i}.')}
+            result = f.load_state_dict(module_state_dict, strict=False)
+        # freeze fusion stage layers
+        self.freeze_stages = args.get("freeze_stages", False)
+        if self.freeze_stages:
+            for f in self.fusions:
+                for n, f_p in f.named_parameters():
+                    if 'adapter' not in n:
+                        f_p.requires_grad_(False)
 
 
     def extract_depth_features(self, sensor_data, pointnet_model, neural_map):#, dimensions):
@@ -228,21 +261,6 @@ class DINOv2MVSNet(nn.Module):
                 else:
                     depth_samples = init_range(depth_values, self.ndepths[stage_idx], imgs.device,
                                                              imgs.dtype, H, W)
-                # depth_pp = []
-                # for b in range(B):
-                #     pp = global_pcd_batch(depth_samples, proj_matrices_stage[b, 0,].unsqueeze(0))
-                #     depth_pp.append(pp)
-                # depth_pp = torch.cat(depth_pp, axis=0)
-                # print(depth_pp.shape)
-
-                # mesh = trimesh.Trimesh(vertices=depth_pp.cpu().numpy())
-                # output_path = os.path.join(os.getcwd(), "depth_pp.ply")
-                # mesh.export(output_path)
-                # print(f"Mesh exported successfully to {output_path}")
-                # obj_cam = camSk3DDataset()
-                # print(obj_cam[0])
-                # torch.save(depth_samples, "depth_samples.pt")
-                # raise
 
             else:
                 if self.inverse_depth: # true

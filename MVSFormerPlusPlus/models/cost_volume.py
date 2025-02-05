@@ -171,8 +171,7 @@ class StageNet(nn.Module):
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
         self.use_adapter = args.get("use_adapter", False)
-        # print("cost volume feature size:", bnvconfig.model.feature_vector_size, args["feat_chs"][0])
-        # self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
+        self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
 
     def forward(self, features, proj_matrices, depth_values, depth_features, interpolater, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]
@@ -229,25 +228,33 @@ class StageNet(nn.Module):
         # VISUALIZE COST VOLUME
         ## DEBUG
         # # convert cost volume to pcd3d
-        print(f"depth_values: {depth_values.shape}")
-        print(f"cot volume: {volume_mean.shape}")
-        # print(depth_values[0][5], depth_values[1][5])
+        if depth_features is not None and self.stage_idx == 0:
+            print(f"depth_values: {depth_values.shape}")
+            print(f"cot volume: {volume_mean.shape}")
+            # print(depth_values[0][5], depth_values[1][5])
 
-        # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
-        print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
-        points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
-        print(f"POINTS DTYPE: {points.dtype}")
+            # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
+            print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
+            points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
+            print(f"POINTS DTYPE: {points.dtype}")
 
-        inter_pp = []
+            inter_pp = []
 
-        for b in range(B):
-            pp = interpolater.interpolate_feats(depth_features["active_coordinates"][b],
-                                                depth_features["features"][b],
-                                                points[b,])
-            inter_pp.append(pp[0])
-        
-        bnv_grid_feats = torch.stack(inter_pp, axis=0)
-        print(bnv_grid_feats.shape)
+            for b in range(B):
+                pp = interpolater.interpolate_feats(depth_features["active_coordinates"][b],
+                                                    depth_features["features"][b],
+                                                    points[b,])
+                inter_pp.append(pp[0])
+            
+            bnv_grid_feats = torch.stack(inter_pp, axis=0)
+            print(bnv_grid_feats.shape)
+
+            volume_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
+            print(volume_mean.shape)
+
+            if self.use_adapter:
+                volume_mean = self.adapter(volume_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+
 
         # mesh = trimesh.Trimesh(vertices=points[0,].cpu().numpy())
         # output_path = os.path.join(os.getcwd(), "depth_hyp.ply")
@@ -272,30 +279,7 @@ class StageNet(nn.Module):
         # mesh.export(output_path)
         # torch.save(depth_features["active_coordinates"][1], "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
 
-
-        raise
         # print("Tensors are successfully saved")
-        
-        # if depth_features is not None:
-        #     depth_feat_res = []
-        #     for i in range(depth_values.shape[0]):
-        #         depth_features_interpolated = nearest_neighbor_interpolation(
-        #             depth_features["active_coordinates"][i], 
-        #             depth_features["features"][i],
-        #             points
-        #         )
-        #         depth_feat_res.append(depth_features_interpolated)
-        #     depth_volume = torch.reshape(torch.transpose(torch.stack(depth_feat_res, dim=0), dim0=1, dim1=2), volume_mean.shape).cuda()
-        #     print(depth_volume.device, volume_mean.device)
-        #     volume_mean = torch.cat([volume_mean, depth_volume], dim=1)
-        #     print(volume_mean.shape)
-        
-        # if self.use_adapter:
-        #     volume_mean_adapt = self.adapter(volume_mean)
-        #     print(volume_mean_adapt.shape)
-
-        # raise
-        ## DEBUG
 
         cost_reg = self.cost_reg(volume_mean, position3d) # [1, 1, D, 172, 200]
 

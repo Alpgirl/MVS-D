@@ -18,7 +18,6 @@ from datasets.sk3d_dataset import Sk3DDataset
 from trainer.mvsformer_trainer import Trainer
 from base.parse_config import ConfigParser
 from utils import get_lr_schedule_with_warmup, get_parameter_groups, init_model, read_json
-from omegaconf import OmegaConf
 
 SEED = 123
 torch.manual_seed(SEED)
