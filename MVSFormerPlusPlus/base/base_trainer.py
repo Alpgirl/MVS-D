@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from utils import save_scalars
 
 import torch
 from numpy import inf
@@ -82,6 +83,8 @@ class BaseTrainer:
                 # save logged informations into log dict
                 log = {'epoch': epoch}
                 log.update(result)
+
+                save_scalars(self.writer, 'validation_epoch', log, self.wandb_global_step)
 
                 # print logged informations to the screen
                 for key, value in log.items():

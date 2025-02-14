@@ -33,9 +33,9 @@ class LitFusionPointNet(pl.LightningModule):
             self.nerf = tcnnNeRFModel(self.feat_dims, tcnn_config=cfg.model.tcnn_config, **vars(cfg.model.nerf)) #**cfg.model.nerf) 
         else:
             self.pointnet_backbone = pointnet_utils.PointNetEncoder(
-                self.feat_dims, **cfg.model.point_net)
+                self.feat_dims,  **vars(cfg.model.point_net)) #**cfg.model.point_net)
             self.nerf = LocalNeRFModel(
-                self.feat_dims, **cfg.model.nerf)
+                self.feat_dims, **vars(cfg.model.nerf)) #**cfg.model.nerf)
         self.voxel_size = cfg.model.voxel_size
         self.n_xyz = np.ceil((np.asarray(cfg.model.bound_max) - np.asarray(cfg.model.bound_min)) / self.voxel_size).astype(int).tolist()
         self.bound_min = torch.tensor(cfg.model.bound_min, device=self.device).float()

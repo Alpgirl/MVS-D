@@ -32,6 +32,7 @@ class DINOv2MVSNet(nn.Module):
         super(DINOv2MVSNet, self).__init__()
         self.args = args
         self.rgbd = args.get('rgbd', False)
+        self.sdf_debug = args.get("sdf_debug", False)
         self.bnvconfig = bnvconfig
         self.ndepths = args['ndepths']
         self.depth_interals_ratio = args['depth_interals_ratio']
@@ -102,23 +103,19 @@ class DINOv2MVSNet(nn.Module):
 
         ## TO CONTINUE: INTEGRATE_FRAME()
         for b in range(B):
-            # initialize volume object
-            # print("initializing volume object")
-            # neural_map = NeuralMap(
-            #     dimensions,
-            #     self.bnvconfig,
-            #     pointnet_model,
-            #     working_dir="")
-            
             for v in range(V):
+                # print(sensor_data["rgbd"][b][v].shape)
                 frame = {
-                    "input_pts": torch.unsqueeze(sensor_data["input_pts"][b][v], dim=0)
+                    "input_pts": torch.unsqueeze(sensor_data["input_pts"][b][v], dim=0),
+                    # "rgbd": torch.unsqueeze(sensor_data["rgbd"][b][v], dim=0),
+                    # "T_wc": torch.unsqueeze(sensor_data["extr"][b][v], dim=0),
+                    # "intr_mat": torch.unsqueeze(sensor_data["intr"][b][v], dim=0),
                 }
                 neural_map.integrate(frame)
-                print(f"Element {b}, which is view {v}, is integrated in Neural Volume")
+                # print(f"Element {b}, which is view {v}, is integrated in Neural Volume")
 
-            active_coordinates, features, weights, num_hits = neural_map.volume.to_tensor()
-            print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
+            active_coordinates, features, _, _ = neural_map.volume.to_tensor()
+            # print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
             # active_coordinates_rescaled = active_coordinates * self.bnvconfig.model.voxel_size + neural_map.volume.min_coords
 
             batch_act_coords.append(active_coordinates.detach().cpu())
@@ -126,9 +123,14 @@ class DINOv2MVSNet(nn.Module):
             # batch_weights.append(weights.detach().cpu())
             # batch_num_hits.append(num_hits.detach().cpu())
 
-            neural_map.volume.reset(neural_map.volume.capacity)
-            # break
+            if self.sdf_debug and b==0:
+                # uncomment rgbd, sensor extr and intr in sk3d_dataset and here in frame
+                sdf = neural_map.extract_mesh() #volume.meshlize(pointnet_model.nerf)
+                all_act_coords = torch.cat(batch_act_coords, dim=0)
+                torch.save(sdf, "bnvlogs/sdf.pt")
+                torch.save(all_act_coords, "bnvlogs/sdf_bnv_coords.pt")
 
+            neural_map.volume.reset(neural_map.volume.capacity)
         
         depth_features = {
             "active_coordinates": batch_act_coords,
@@ -138,8 +140,8 @@ class DINOv2MVSNet(nn.Module):
             # "weights": batch_weights,
             # "num_hits": batch_num_hits,
         }
-        
-
+        print(f"Depth features are extracted for the batch of images")
+        del batch_act_coords, batch_features, frame
         # Extract active coords to ply
         # mesh = trimesh.Trimesh(vertices=batch_act_coords[0].detach().cpu().numpy()) # take the first ref+source views
         # output_path = os.path.join(os.getcwd(), "depth_feats_no_shift.ply")

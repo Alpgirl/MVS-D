@@ -102,7 +102,7 @@ class NeuralMap:
                 fine_coords,
                 fine_feats,
                 fine_weights)
-            # # tsdf fusion
+            # tsdf fusion
             # rgbd = frame['rgbd'].cpu().numpy() # [1, 4, 1952, 2368]
             # depth_map = rgbd[0, -1, :, :]
             # rgb = (rgbd[0, :3, :, :].transpose(1, 2, 0) + 0.5) * 255.
@@ -169,8 +169,8 @@ class NeuralMap:
 
     def extract_mesh(self):
         sdf_delta = self.prepare_tsdf_volume()
-        surface_pts, mesh = self.volume.meshlize(self.pointnet.nerf, sdf_delta)
-        return mesh
+        surface_pts, mesh = self.volume.meshlize(self.pointnet.nerf, sdf_delta) # surface_pts, mesh, sdf 
+        return mesh # mesh
 
     def prepare_tsdf_volume(self):
         tsdf_volume, _ = self.tsdf_vol.get_volume()

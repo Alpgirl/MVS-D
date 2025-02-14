@@ -38,11 +38,15 @@ class GridInterpolation(object):
         # rescale and shift the full voxel grid (from bnv)
         full_pp_coord = full_pp_coord * self.voxel_size + self.bound_min
 
-        mesh = trimesh.Trimesh(vertices=full_pp_coord.cpu().numpy())
-        output_path = os.path.join(os.getcwd(), "full_pp_coord.ply")
-        mesh.export(output_path)
-        print(f"Mesh exported successfully to {output_path}")
+        # mesh = trimesh.Trimesh(vertices=full_pp_coord.cpu().numpy())
+        # output_path = os.path.join(os.getcwd(), "full_pp_coord.ply")
+        # mesh.export(output_path)
+        # print(f"Mesh exported successfully to {output_path}")
         return full_pp_coord
+    
+
+    def reset_pp_grids(self):
+        del self.full_pp_coord, self.full_pp_feats
     
 
     def interpolate_feats(self, bnv_pp_ids, bnv_pp_feats, depth_pp_hyp):
@@ -236,6 +240,7 @@ class StageNet(nn.Module):
             # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
             print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
             points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
+            # torch.save(points[0], "bnvlogs/depth_hyp_sdf.pt")
             print(f"POINTS DTYPE: {points.dtype}")
 
             inter_pp = []
@@ -254,6 +259,9 @@ class StageNet(nn.Module):
 
             if self.use_adapter:
                 volume_mean = self.adapter(volume_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+
+            del points, pp, inter_pp, bnv_grid_feats
+            interpolater.reset_pp_grids()
 
 
         # mesh = trimesh.Trimesh(vertices=points[0,].cpu().numpy())

@@ -14,6 +14,7 @@ import yaml
 from omegaconf import OmegaConf
 from torch.optim.lr_scheduler import LambdaLR
 import pdb
+import wandb
 import itertools
 
 
@@ -92,41 +93,129 @@ def tocuda(vars):
 
 def save_scalars(logger, mode, scalar_dict, global_step):
     scalar_dict = tensor2float(scalar_dict)
+    log_dict = {}
     for key, value in scalar_dict.items():
         if not isinstance(value, (list, tuple)):
             name = '{}/{}'.format(mode, key)
-            logger.add_scalar(name, value, global_step)
+            log_dict[name] = value
+            # logger.add_scalar(name, value, global_step)
         else:
             for idx in range(len(value)):
                 name = '{}/{}_{}'.format(mode, key, idx)
-                logger.add_scalar(name, value[idx], global_step)
+                # logger.add_scalar(name, value[idx], global_step)
+                log_dict[name] = value[idx]
+    logger.log(log_dict, step=global_step)
 
 
-def save_images(logger, mode, images_dict, global_step, fname=None):
-    images_dict = tensor2numpy(images_dict)
+# def save_images(logger, mode, images_dict, global_step, fname=None):
+#     images_dict = tensor2numpy(images_dict)
+#     log_dict = {}
+#     def preprocess(name, img):
+#         if not (len(img.shape) == 3 or len(img.shape) == 4):
+#             raise NotImplementedError("invalid img shape {}:{} in save_images".format(name, img.shape))
+#         if len(img.shape) == 3:
+#             img = img[:, np.newaxis, :, :]
+#         img = torch.from_numpy(img[:1])
+#         return vutils.make_grid(img, padding=0, nrow=1, normalize=True, scale_each=True)
 
-    def preprocess(name, img):
-        if not (len(img.shape) == 3 or len(img.shape) == 4):
-            raise NotImplementedError("invalid img shape {}:{} in save_images".format(name, img.shape))
-        if len(img.shape) == 3:
-            img = img[:, np.newaxis, :, :]
-        img = torch.from_numpy(img[:1])
-        return vutils.make_grid(img, padding=0, nrow=1, normalize=True, scale_each=True)
+#     for key, value in images_dict.items():
+#         if not isinstance(value, (list, tuple)):
+#             if fname is not None:
+#                 name = '{}/{}/{}'.format(mode, fname, key)
+#             else:
+#                 name = '{}/{}'.format(mode, key)
+#             log_dict[name] = preprocess(name, value)
+#             # logger.add_image(name, preprocess(name, value), global_step)
+#         else:
+#             for idx in range(len(value)):
+#                 if fname is not None:
+#                     name = '{}/{}/{}_{}'.format(mode, fname, key, idx)
+#                 else:
+#                     name = '{}/{}_{}'.format(mode, key, idx)
+#                 log_dict[name] = preprocess(name, value[idx])
+#                 # logger.add_image(name, preprocess(name, value[idx]), global_step)
+#     logger.log(log_dict, step=global_step)
 
-    for key, value in images_dict.items():
-        if not isinstance(value, (list, tuple)):
-            if fname is not None:
-                name = '{}/{}/{}'.format(mode, fname, key)
+def get_pseudo_normals(depthmap, scale=10):
+    r"""
+    Parameters
+    ----------
+    depthmap : torch.Tensor
+        of shape [batch_size, 1, height, width]
+    scale : float
+    Returns
+    -------
+    normals : torch.Tensor
+        of shape [batch_size, 3, height, width], with coordinates in range [0, 1].
+    """
+    shape = list(depthmap.shape)
+    shape[1] = 3
+    normals = depthmap.new_empty(shape)
+
+    depthmap = torch.nn.functional.pad(depthmap, (1, 1, 1, 1), 'replicate')
+    normals[..., 0:1, :, :] = depthmap[..., 1:-1, 2:] - depthmap[..., 1:-1, 1:-1]
+    normals[..., 1:2, :, :] = depthmap[..., 1:-1, 1:-1] - depthmap[..., 2:, 1:-1]
+    normals[..., 2:, :, :] = 1 / scale
+    normals = torch.nn.functional.normalize(normals, dim=-3)
+    normals[..., :2, :, :] = (normals[..., :2, :, :] + 1).div_(2)
+    return normals
+
+
+import torchvision.utils as vutils
+from matplotlib import cm
+VMIN, VMAX = -1, 1  # For error maps
+SDF_VMIN, SDF_VMAX = -1, 1  # For SDF
+
+def save_images(logger, mode, images_dict, global_step, fname=None, ):
+    if logger is not None:
+        images_dict = tensor2numpy(images_dict)  # Convert tensors to numpy
+
+        def preprocess(name, img, dmax=None, dmin=None):
+            # Apply color mapping based on image type
+            if 'depth' in name:
+                img = (img - dmin) / (dmax - dmin)
+                img = torch.from_numpy(cm.plasma(img.squeeze())[..., :3]).permute(2, 0, 1)
+            elif 'errormap' in name:
+                img = (img - VMIN) / (VMAX - VMIN)
+                cmap = cm.bwr if 'signed' in name else cm.hot.reversed()
+                img = cmap(img.squeeze())[..., :3]
+            # elif 'normalmap' in name:
+            #     img = img.mul(255).clamp(0, 255).byte()
+            elif 'conf' in name:
+                img = torch.from_numpy(cm.hot(img.squeeze())[..., :3]).permute(2, 0, 1)
+            elif 'img' in name:  # Default to normalize if no specific type is matched
+                img = torch.from_numpy(img.squeeze())
+
+            # Ensure img is [C, H, W] format for vutils.make_grid
+            # print(name, img.shape)
+
+            return vutils.make_grid(img, padding=0, nrow=1)
+
+        # Generate and add normal maps to the dictionary
+        if "pred_depth" in images_dict:
+            images_dict["pred_normalmap"] = get_pseudo_normals(
+                torch.from_numpy(images_dict["pred_depth"]).float().unsqueeze(0).unsqueeze(0) / images_dict['depth_interval'], scale=10
+            ).squeeze(0)
+        if "gt_depth" in images_dict:
+            images_dict["gt_normalmap"] = get_pseudo_normals(
+                torch.from_numpy(images_dict["gt_depth"]).float().unsqueeze(0).unsqueeze(0) / images_dict['depth_interval'], scale=10
+            ).squeeze(0)
+
+        for key, value in images_dict.items():
+            if key == 'depth_interval' or key == 'depths_max' or key == 'depths_min':
+                continue
+            if not isinstance(value, (list, tuple)):
+                # Handle single image case
+                name = f"{mode}/{fname}/{key}" if fname else f"{mode}/{key}"
+                image = preprocess(name, value, dmax=images_dict['depths_max'], dmin=images_dict['depths_min'])
+                logger.log({name: wandb.Image(image.unsqueeze(0))}, step=global_step)
             else:
-                name = '{}/{}'.format(mode, key)
-            logger.add_image(name, preprocess(name, value), global_step)
-        else:
-            for idx in range(len(value)):
-                if fname is not None:
-                    name = '{}/{}/{}_{}'.format(mode, fname, key, idx)
-                else:
-                    name = '{}/{}_{}'.format(mode, key, idx)
-                logger.add_image(name, preprocess(name, value[idx]), global_step)
+                raise NotImplementedError
+                # Handle list/tuple of images
+                for idx, img in enumerate(value):
+                    name = f"{mode}/{fname}/{key}_{idx}" if fname else f"{mode}/{key}_{idx}"
+                    image = preprocess(name, img)
+                    logger.log({name: wandb.Image(image)}, step=global_step)
 
 
 class DictAverageMeter(object):

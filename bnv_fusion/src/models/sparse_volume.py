@@ -717,6 +717,8 @@ class SparseVolume:
         all_faces = []
         last_face_id = 0
 
+        # sdf_total = []
+        # voxel_coords_total = []
         for i in range(0, len(self.active_coordinates), batch_size):
             origin = active_coords[i: i + batch_size]
             n_batches = len(origin)
@@ -741,6 +743,9 @@ class SparseVolume:
 
             sdf = out[0, :, :, 0].reshape(n_batches, H, W, D)
             sdf = sdf.detach().cpu().numpy()
+            # sdf_total.append(out[0, :, :, 0].detach().cpu())
+            # voxel_coords_total.append(voxel_coords[0])
+            # print(f"SDF: {sdf[0], sdf[4]}")
             for j in range(n_batches):
                 # print(f"max sdf={np.max(sdf[j])}, min sdf={np.min(sdf[j])}")
                 # raise
@@ -769,6 +774,10 @@ class SparseVolume:
         )
         if path is not None:
             mesh.export(path)
+        # sdf_total = torch.cat(sdf_total, dim=0)#.mean(dim=1)
+        # voxel_coords_total = torch.cat(voxel_coords_total, dim=0)
+        # torch.save(voxel_coords_total, "voxel_coords.pt")
+        # print(f"sdf_total: {sdf_total.shape}, voxel_coords: {voxel_coords_total.shape} ")
         return active_pts, mesh
 
     def decode_pts(

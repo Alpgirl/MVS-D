@@ -13,6 +13,7 @@ from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
 
 import bnv_fusion.src.utils.geometry as geometry
 # from bnv_fusion.src.datasets.fusion_inference_dataset import SkoltechInferenceDataset
+import copy
 
 from .color_jittor import ColorJitter
 
@@ -422,9 +423,8 @@ class Sk3DDataset(Dataset):
         # NOTE: VERY IMPORTANT TO * -1 for normal due to a bug in data preparation in
         # data_prepare_depth_shapenet.py!
 
-        # print(rgb.shape, depth[None,...].shape)
         normal_w = (T_cw[:3, :3] @ normal.reshape(-1, 3).T).T
-        # rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
+        rgbd = np.concatenate([rgb, depth[None, ...]], axis=0)
 
         pts_c = geometry.depth2xyz(depth.numpy(), intr_mat).reshape(-1, 3)
         pts_w_frame = (T_cw @ geometry.get_homogeneous(pts_c).T)[:3, :].T
@@ -438,9 +438,9 @@ class Sk3DDataset(Dataset):
             # "img_path": image_path,
             # "scene_id": self.scan_id,
             # "frame_id": idx,
-            # "T_wc": T_cw,
-            # "intr_mat": intr_mat,
-            # "rgbd": rgbd,
+            "T_wc": T_cw,
+            "intr_mat": intr_mat,
+            "rgbd": rgbd,
             # "mask": mask,
             "gt_pts": pts_w_frame,
             # "gt_depth": depth,
@@ -501,6 +501,7 @@ class Sk3DDataset(Dataset):
             
             img = self.read_img(img_filename) 
             img = np.array(img) # already cropped to remove background
+            img_init = copy.deepcopy(img)
 
             ## LOAD CAMERA PARAMS
             proj_mat_filename = os.path.join(self.datapath, 'addons/{}/tis_right/rgb/mvsnet_input/{:0>8}_cam.txt'.format(scan, vid))
@@ -581,12 +582,13 @@ class Sk3DDataset(Dataset):
                 sensor_extr = np.linalg.inv(extrinsics)   
 
                 # print(sensor_mask.dtype)
-                frame = self.bnv_sensor_depth_item(sensor_depth, imgs[-1], sensor_mask, sensor_extr, sensor_intr)
+                img_init = self.transforms(img_init)
+                frame = self.bnv_sensor_depth_item(sensor_depth, img_init, sensor_mask, sensor_extr, sensor_intr)
 
                 sensor_depths_arr.append(sensor_depth)
                 sensor_masks_arr.append(sensor_mask)
-                sensor_intrs.append(torch.FloatTensor(sensor_intr))
-                sensor_extrs.append(torch.FloatTensor(sensor_extr))
+                # sensor_intrs.append(torch.FloatTensor(sensor_intr))
+                # sensor_extrs.append(torch.FloatTensor(sensor_extr))
                 # sensor_rgbds.append(torch.FloatTensor(frame["rgbd"]))
                 sensor_gt_pts.append(torch.FloatTensor(frame["gt_pts"]))
                 sensor_input_pts.append(torch.FloatTensor(frame["input_pts"]))
@@ -617,8 +619,8 @@ class Sk3DDataset(Dataset):
         if self.rgbd:
             sensor_depths_arr = torch.stack(sensor_depths_arr) # [V, H, W]
             sensor_masks_arr = torch.stack(sensor_masks_arr) # [V, H, W]
-            sensor_intrs = torch.stack(sensor_intrs)
-            sensor_extrs = torch.stack(sensor_extrs)
+            # sensor_intrs = torch.stack(sensor_intrs)
+            # sensor_extrs = torch.stack(sensor_extrs)
             # sensor_rgbds = torch.stack(sensor_rgbds)
 
         result = {"imgs": imgs,
@@ -634,8 +636,8 @@ class Sk3DDataset(Dataset):
         if self.rgbd:
             result["sensor_depths"] = sensor_depths_arr
             result["sensor_depth_masks"] = sensor_masks_arr
-            result["sensor_intr"] = sensor_intrs
-            result["sensor_extr"] = sensor_extrs
+            # result["sensor_intr"] = sensor_intrs
+            # result["sensor_extr"] = sensor_extrs
             result["input_pts"] = sensor_input_pts
             # result["rgbd"] = sensor_rgbds
             result["gt_pts"] = sensor_gt_pts

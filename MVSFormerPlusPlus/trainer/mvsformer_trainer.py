@@ -102,10 +102,11 @@ class Trainer(BaseTrainer):
             sensor_data = {
                 'depths': sample_cuda['sensor_depths'][b_start:b_end],
                 'masks': sample_cuda['sensor_depth_masks'][b_start:b_end],
-                'intr': sample_cuda['sensor_intr'][b_start:b_end],
-                'extr': sample_cuda['sensor_extr'][b_start:b_end],
+                # 'intr': sample_cuda['sensor_intr'][b_start:b_end],
+                # 'extr': sample_cuda['sensor_extr'][b_start:b_end],
                 'input_pts': sample_cuda['input_pts'][b_start:b_end],
                 'gt_pts': sample_cuda['gt_pts'][b_start:b_end],
+                # 'rgbd': sample_cuda['rgbd'][b_start:b_end]
             }
         else:
             sensor_data = {}
@@ -279,6 +280,7 @@ class Trainer(BaseTrainer):
                     self.optimizer.step()
                     self.lr_scheduler.step()
                 global_step = (epoch - 1) * len(dl) + batch_idx
+                self.wandb_global_step = global_step
 
                 # forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1000.0 ** 2)
                 # print(f"imgs shape:{imgs.shape},, iters_to_accumulate:{iters_to_accumulate}, max_mem: {forward_max_memory_allocated}")
@@ -311,23 +313,26 @@ class Trainer(BaseTrainer):
                     scaled_grads_dict = {}
                     for k in scaled_grads:
                         scaled_grads_dict[k] = np.max(scaled_grads[k])
-                    save_scalars(self.writer, 'grads', scaled_grads_dict, global_step)
+                    save_scalars(self.writer, 'grads', scaled_grads_dict, self.wandb_global_step)
                     scaled_grads = collections.defaultdict(list)
 
                 if batch_idx % self.log_step == 0 and self.rank == 0:
                     scalar_outputs = {"loss": total_loss.item()}
                     for key in total_loss_dict:
                         scalar_outputs['loss_' + key] = loss_dict[key].item()
-                    image_outputs = {"pred_depth": outputs['refined_depth'] * mask_ms_tmp[f'stage{num_stage}'],
-                                     "pred_depth_nomask": outputs['refined_depth'],
-                                     "conf": outputs['photometric_confidence'],
-                                     "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'], "ref_img": imgs_tmp[:, 0]}
+                    sample_i = 0 # reference image
+                    print("DEBUG LOGGING:", outputs['refined_depth'].shape)
+                    image_outputs = {"pred_depth": outputs['refined_depth'][sample_i] * mask_ms_tmp[f'stage{num_stage}'][sample_i],
+                                     "pred_depth_nomask": outputs['refined_depth'][sample_i],
+                                     "conf": outputs['photometric_confidence'][sample_i], 'depth_interval': sample_cuda['depth_interval'][sample_i],
+                                     "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'][sample_i], "ref_img": imgs_tmp[sample_i, 0],
+                                     "depths_max": sample_cuda["depths_max"][sample_i], "depths_min": sample_cuda["depths_min"][sample_i]}
                     if self.fp16:
                         scalar_outputs['loss_scale'] = float(self.scaler.get_scale())
                     for i, lr_value in enumerate(self.lr_scheduler.get_last_lr()):
                         scalar_outputs[f'lr_{i}'] = lr_value
-                    save_scalars(self.writer, 'train', scalar_outputs, global_step)
-                    save_images(self.writer, 'train', image_outputs, global_step)
+                    save_scalars(self.writer, 'train', scalar_outputs, self.wandb_global_step)
+                    save_images(self.writer, 'train', image_outputs, self.wandb_global_step)
                     del scalar_outputs, image_outputs
 
         val_metrics = self._valid_epoch(epoch)
@@ -374,11 +379,17 @@ class Trainer(BaseTrainer):
 
                     depth_values = sample_cuda["depth_values"]
                     depth_interval = depth_values[:, 1] - depth_values[:, 0]
+
+                    if self.rgbd:
+                        sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda)
+                    else:
+                        sensor_data, pointnet_model, neural_map = None, None, None
+
                     if self.fp16:
                         with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
-                            outputs = self.model.forward(imgs, cam_params, depth_values)
+                            outputs = self.model.forward(imgs, cam_params, depth_values, sensor_data, pointnet_model, neural_map, self.dimensions)
                     else:
-                        outputs = self.model.forward(imgs, cam_params, depth_values)
+                        outputs = self.model.forward(imgs, cam_params, depth_values, sensor_data, pointnet_model, neural_map, self.dimensions)
 
                     depth_est = outputs["refined_depth"].detach()
                     if self.config['data_loader'][val_data_idx]['type'] == 'BlendedLoader':
@@ -398,6 +409,16 @@ class Trainer(BaseTrainer):
                                 scalar_outputs[k] += scalar_outputs_[k]
                         for k in scalar_outputs:
                             scalar_outputs[k] /= depth_interval.shape[0]
+                    elif self.config['data_loader'][val_data_idx]['type'] == 'Sk3DLoader':
+                        di = depth_interval[0].item()
+                        scalar_outputs = {"abs_depth_thres0-2mm_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5, [0, di * 2]),
+                                          "abs_depth_thres0-4mm_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5, [0, di * 4]),
+                                          "abs_depth_thres0-8mm_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5, [0, di * 8]),
+                                          "abs_depth_thres0-14mm_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5, [0, di * 14]),
+                                          "thres2mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 2),
+                                          "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 4),
+                                          "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 8),
+                                          "thres14mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 14)}
                     else:
                         di = depth_interval[0].item() / 2.65
                         scalar_outputs = {"abs_depth_thres0-2mm_error": AbsDepthError_metrics(depth_est, depth_gt, mask > 0.5, [0, di * 2]),
@@ -410,18 +431,23 @@ class Trainer(BaseTrainer):
                                           "thres14mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 14)}
 
                     scalar_outputs = tensor2float(scalar_outputs)
-                    image_outputs = {"pred_depth": outputs['refined_depth'][0:1] * mask[0:1], "gt_depth": depth_gt[0:1], "ref_img": imgs[0:1, 0]}
+                    # image_outputs = {"pred_depth": outputs['refined_depth'][0:1] * mask[0:1], "gt_depth": depth_gt[0:1], "ref_img": imgs[0:1, 0]}
+                    image_outputs = {"pred_depth": outputs['refined_depth'][0] * mask[0],
+                     "gt_depth": depth_gt[0], "ref_img": imgs[0, 0], 'depth_interval': sample_cuda['depth_interval'][0],
+                      "depths_max": sample_cuda["depths_max"][0], "depths_min": sample_cuda["depths_min"][0]}
 
                     self.valid_metrics.update(scalar_outputs)
 
                     if self.rank == 0 and val_data_idx == 0:
                         # 每个scan存一张
-                        filenames = sample['filename']
-                        for filename in filenames:
-                            scan = filename.split('/')[0]
-                            if scan not in seen_scans:
-                                seen_scans.add(scan)
-                                save_images(self.writer, 'test', image_outputs, epoch, fname=scan)
+                        # filenames = sample['filename']
+                        # for filename in filenames:
+                        #     scan = filename.split('/')[0]
+                        #     if scan not in seen_scans:
+                        #         seen_scans.add(scan)
+                        #         save_images(self.writer, 'test', image_outputs, epoch, fname=scan)
+                        save_images(self.writer, 'val', image_outputs, self.wandb_global_step)
+                        save_scalars(self.writer, 'val', scalar_outputs, self.wandb_global_step)
 
                     if temp and batch_idx > 5:
                         break

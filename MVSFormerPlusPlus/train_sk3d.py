@@ -8,7 +8,8 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn.parallel
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+import wandb
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
@@ -204,7 +205,9 @@ def main(gpu, args, config, bnvconfig):
     lr_scheduler = get_lr_schedule_with_warmup(optimizer, num_warmup_steps=opt_args['warmup_steps'], min_lr=opt_args['min_lr'],
                                                total_steps=len(train_data_loaders[0]) * config['trainer']['epochs'])
 
-    writer = SummaryWriter(config.log_dir)
+    writer = wandb.init(project="mvsformerpp+bnvfusion", name=args.exp_name, config=config)  # Initialize wandb
+
+    # writer = SummaryWriter(config.log_dir)
     model.cuda(gpu)
 
     is_finetune = config['arch'].get('finetune', False)
