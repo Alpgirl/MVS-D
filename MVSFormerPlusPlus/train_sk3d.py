@@ -205,8 +205,10 @@ def main(gpu, args, config, bnvconfig):
     lr_scheduler = get_lr_schedule_with_warmup(optimizer, num_warmup_steps=opt_args['warmup_steps'], min_lr=opt_args['min_lr'],
                                                total_steps=len(train_data_loaders[0]) * config['trainer']['epochs'])
 
-    writer = wandb.init(project="mvsformerpp+bnvfusion", name=args.exp_name, config=config)  # Initialize wandb
-
+    if rank == 0:
+        writer = wandb.init(project="mvsformerpp+bnvfusion", name=args.exp_name, config=config)  # Initialize wandb
+    else:
+        writer = None
     # writer = SummaryWriter(config.log_dir)
     model.cuda(gpu)
 

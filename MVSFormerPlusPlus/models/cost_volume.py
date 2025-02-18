@@ -233,15 +233,15 @@ class StageNet(nn.Module):
         ## DEBUG
         # # convert cost volume to pcd3d
         if depth_features is not None and self.stage_idx == 0:
-            print(f"depth_values: {depth_values.shape}")
-            print(f"cot volume: {volume_mean.shape}")
+            # print(f"depth_values: {depth_values.shape}")
+            # print(f"cot volume: {volume_mean.shape}")
             # print(depth_values[0][5], depth_values[1][5])
 
             # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
-            print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
+            # print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
             points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
             # torch.save(points[0], "bnvlogs/depth_hyp_sdf.pt")
-            print(f"POINTS DTYPE: {points.dtype}")
+            # print(f"POINTS DTYPE: {points.dtype}")
 
             inter_pp = []
 
@@ -252,10 +252,10 @@ class StageNet(nn.Module):
                 inter_pp.append(pp[0])
             
             bnv_grid_feats = torch.stack(inter_pp, axis=0)
-            print(bnv_grid_feats.shape)
+            # print(bnv_grid_feats.shape)
 
             volume_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
-            print(volume_mean.shape)
+            # print(volume_mean.shape)
 
             if self.use_adapter:
                 volume_mean = self.adapter(volume_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
@@ -268,26 +268,6 @@ class StageNet(nn.Module):
         # output_path = os.path.join(os.getcwd(), "depth_hyp.ply")
         # mesh.export(output_path)
         # print(f"Mesh exported successfully to {output_path}")
-
-        # pp = interpolater.interpolate_coords(points[0,])
-        # print(f"PP DTYPE: {pp.dtype}")
-        # print(f"PP SHAPE: {pp.shape}")
-
-
-        # mesh = trimesh.Trimesh(vertices=pp.cpu().numpy())
-        # output_path = os.path.join(os.getcwd(), "interp_pp.ply")
-        # mesh.export(output_path)
-        # print(f"Mesh exported successfully to {output_path}")
-
-        # # save tensor
-        # torch.save(points, "/app/MVSFormerPlusPlus/bnvlogs/depth_hyp.pt")
-
-        # mesh = trimesh.Trimesh(vertices=depth_features["active_coordinates"][1].numpy())
-        # output_path = os.path.join(os.getcwd(), "bnv_feats_new.ply")
-        # mesh.export(output_path)
-        # torch.save(depth_features["active_coordinates"][1], "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
-
-        # print("Tensors are successfully saved")
 
         cost_reg = self.cost_reg(volume_mean, position3d) # [1, 1, D, 172, 200]
 

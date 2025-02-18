@@ -95,16 +95,12 @@ class DINOv2MVSNet(nn.Module):
                         f_p.requires_grad_(False)
 
 
-    def extract_depth_features(self, sensor_data, pointnet_model, neural_map):#, dimensions):
-        # print(sensor_data["depths"].shape)
+    def extract_depth_features(self, sensor_data, pointnet_model, neural_map):
         B, V = sensor_data["depths"].shape[:2]
         batch_act_coords, batch_features, batch_weights, batch_num_hits = [], [], [], []
-        # print(sensor_data["input_pts"][0][0].shape, len(sensor_data["input_pts"][0]), len(sensor_data["input_pts"]))
 
-        ## TO CONTINUE: INTEGRATE_FRAME()
         for b in range(B):
             for v in range(V):
-                # print(sensor_data["rgbd"][b][v].shape)
                 frame = {
                     "input_pts": torch.unsqueeze(sensor_data["input_pts"][b][v], dim=0),
                     # "rgbd": torch.unsqueeze(sensor_data["rgbd"][b][v], dim=0),
@@ -112,7 +108,6 @@ class DINOv2MVSNet(nn.Module):
                     # "intr_mat": torch.unsqueeze(sensor_data["intr"][b][v], dim=0),
                 }
                 neural_map.integrate(frame)
-                # print(f"Element {b}, which is view {v}, is integrated in Neural Volume")
 
             active_coordinates, features, _, _ = neural_map.volume.to_tensor()
             # print(active_coordinates.shape, features.shape, weights.shape, num_hits.shape)
@@ -120,8 +115,6 @@ class DINOv2MVSNet(nn.Module):
 
             batch_act_coords.append(active_coordinates.detach().cpu())
             batch_features.append(features.detach().cpu())
-            # batch_weights.append(weights.detach().cpu())
-            # batch_num_hits.append(num_hits.detach().cpu())
 
             if self.sdf_debug and b==0:
                 # uncomment rgbd, sensor extr and intr in sk3d_dataset and here in frame
@@ -148,14 +141,8 @@ class DINOv2MVSNet(nn.Module):
         # mesh.export(output_path)
         # print(f"Mesh exported successfully to {output_path}")
 
-        # mesh = trimesh.Trimesh(vertices=batch_act_coords[3].detach().cpu().numpy()) # take the first ref+source views
-        # output_path = os.path.join(os.getcwd(), "depth_feats_3_no_shift.ply")
-        # mesh.export(output_path)
-        # print(f"Mesh exported successfully to {output_path}")
-
         # # save points for interpolation
         # torch.save(active_coordinates.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/act_coords.pt")
-        # torch.save(features.detach().cpu(), "/app/MVSFormerPlusPlus/bnvlogs/feats.pt")
         # print("Tensors are successfully saved")
         return depth_features
     
@@ -228,7 +215,8 @@ class DINOv2MVSNet(nn.Module):
                         'stage2': feat2.reshape(B, V, feat2.shape[1], feat2.shape[2], feat2.shape[3]),
                         'stage3': feat3.reshape(B, V, feat3.shape[1], feat3.shape[2], feat3.shape[3]),
                         'stage4': feat4.reshape(B, V, feat4.shape[1], feat4.shape[2], feat4.shape[3])}
-
+        # print("BEFORE EXTRACT DEPFEATS GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+        # print("BEFORE EXTRACT DEPFEATS GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
         if self.rgbd:
             depth_features = self.extract_depth_features(sensor_data, pointnet_model, neural_map)
             interpolater = GridInterpolation(neural_map.volume.n_xyz,
@@ -242,6 +230,8 @@ class DINOv2MVSNet(nn.Module):
         else:
             depth_features, interpolater = None, None
 
+        # print("AFTER EXTRACT DEPFEATS GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+        # print("AFTER EXTRACT DEPFEATS GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
         features = self.FMT_module.forward(features)
 
         outputs = {}
@@ -299,6 +289,8 @@ class DINOv2MVSNet(nn.Module):
             prob_maps += depth_conf
             valid_count += 1
             outputs.update(outputs_stage)
+            if stage_idx == 0:
+                depth_features, interpolater = None, None
 
         outputs['refined_depth'] = outputs_stage['depth']
         if valid_count > 0:

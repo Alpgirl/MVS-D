@@ -13,8 +13,9 @@ from utils import *
 
 from pytorch_lightning import seed_everything
 from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
-# from bnv_fusion.src.models.sparse_volume import SparseVolume
 from bnv_fusion.src.run_e2e import NeuralMap
+
+from torch import profiler
 
 
 class Trainer(BaseTrainer):
@@ -163,7 +164,8 @@ class Trainer(BaseTrainer):
             else:
                 t_loader = dl
             for batch_idx, sample in enumerate(t_loader):
-
+                # print("INIT GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                # print("INIT GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
                 num_stage = 3 if self.config['data_loader'][0]['args'].get('stage3', False) else 4
                 
                 ## DEBUG
@@ -189,6 +191,8 @@ class Trainer(BaseTrainer):
 
                 self.optimizer.zero_grad()
                 
+                # print("SAMPLETO CUDA GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                # print("SAMPLETO CUDA GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
                 # gradient accumulate
                 if self.multi_scale:
                     # if self.multi_ratio_scale_batch_map is not None:
@@ -214,25 +218,33 @@ class Trainer(BaseTrainer):
                         depth_gt_ms_tmp[k] = depth_gt_ms[k][b_start:b_end]
                         mask_ms_tmp[k] = mask_ms[k][b_start:b_end]
                     
+                    # print("BEFORE PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("BEFORE PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
                     if self.rgbd:
                         sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda, b_start, b_end)
                     else:
                         sensor_data, pointnet_model, neural_map = None, None, None
 
+                    # print("AFTER PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("AFTER PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
                     if self.fp16:
+                        # with profiler.profile(activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], profile_memory=True, record_shapes=True) as prof:
                         with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
 
                             outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
+                        # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=20))
                     else:
 
                         outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
 
+                    # print("AFTER THE DINO MODEL GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("AFTER THE DINO MODEL GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
                     if type(self.depth_type) == list:
                         loss_dict = get_multi_stage_losses(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp, mask_ms_tmp,
-                                                           depth_interval[b_start:b_end], self.inverse_depth)
+                                                        depth_interval[b_start:b_end], self.inverse_depth)
                     else:
                         loss_dict = get_loss(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp,
-                                             mask_ms_tmp, depth_interval[b_start:b_end], self.inverse_depth)
+                                            mask_ms_tmp, depth_interval[b_start:b_end], self.inverse_depth)
 
                     loss = torch.tensor(0.0, device="cuda")
                     for key in loss_dict:
@@ -245,6 +257,8 @@ class Trainer(BaseTrainer):
                     else:
                         (loss * self.loss_downscale).backward()
 
+                del sensor_data, pointnet_model, neural_map
+                
                 if self.debug:
                     # DEBUG:scaled grad
                     with torch.no_grad():
@@ -261,7 +275,7 @@ class Trainer(BaseTrainer):
                                 v = to_unscale.clone().abs().max()
                                 if torch.isinf(v) or torch.isnan(v):
                                     print('Rank', str(self.rank) + ':', 'INF in', group['layer_name'], 'of step',
-                                          global_step, '!!!')
+                                        global_step, '!!!')
                                 scaled_grads[group['layer_name']].append(v.item() / self.scaler.get_scale())
 
                 if self.grad_norm is not None:
@@ -297,9 +311,9 @@ class Trainer(BaseTrainer):
 
                 if self.rank == 0:
                     desc = f"Epoch: {epoch}/{self.epochs}. " \
-                           f"Train. " \
-                           f"Scale:({imgs.shape[-2]}x{imgs.shape[-1]}), " \
-                           f"Loss: {'%.2f' % total_loss.item()}"
+                        f"Train. " \
+                        f"Scale:({imgs.shape[-2]}x{imgs.shape[-1]}), " \
+                        f"Loss: {'%.2f' % total_loss.item()}"
                     # FIXME:Temp codes
                     if "stage4_uncertainty" in loss_dict:
                         desc += f", VarLoss: {'%.2f' % loss_dict['stage4_uncertainty'].item()}"
@@ -321,12 +335,11 @@ class Trainer(BaseTrainer):
                     for key in total_loss_dict:
                         scalar_outputs['loss_' + key] = loss_dict[key].item()
                     sample_i = 0 # reference image
-                    print("DEBUG LOGGING:", outputs['refined_depth'].shape)
                     image_outputs = {"pred_depth": outputs['refined_depth'][sample_i] * mask_ms_tmp[f'stage{num_stage}'][sample_i],
-                                     "pred_depth_nomask": outputs['refined_depth'][sample_i],
-                                     "conf": outputs['photometric_confidence'][sample_i], 'depth_interval': sample_cuda['depth_interval'][sample_i],
-                                     "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'][sample_i], "ref_img": imgs_tmp[sample_i, 0],
-                                     "depths_max": sample_cuda["depths_max"][sample_i], "depths_min": sample_cuda["depths_min"][sample_i]}
+                                    "pred_depth_nomask": outputs['refined_depth'][sample_i],
+                                    "conf": outputs['photometric_confidence'][sample_i], 'depth_interval': sample_cuda['depth_interval'][sample_i],
+                                    "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'][sample_i], "ref_img": imgs_tmp[sample_i, 0],
+                                    "depths_max": sample_cuda["depths_max"][sample_i], "depths_min": sample_cuda["depths_min"][sample_i]}
                     if self.fp16:
                         scalar_outputs['loss_scale'] = float(self.scaler.get_scale())
                     for i, lr_value in enumerate(self.lr_scheduler.get_last_lr()):
@@ -335,6 +348,8 @@ class Trainer(BaseTrainer):
                     save_images(self.writer, 'train', image_outputs, self.wandb_global_step)
                     del scalar_outputs, image_outputs
 
+                    # print("1 BATCH GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("1 BATCH GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
         val_metrics = self._valid_epoch(epoch)
 
         if self.ddp:
@@ -429,7 +444,8 @@ class Trainer(BaseTrainer):
                                           "thres4mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 4),
                                           "thres8mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 8),
                                           "thres14mm_error": Thres_metrics(depth_est, depth_gt, mask > 0.5, di * 14)}
-
+                    
+                    del sensor_data, pointnet_model, neural_map
                     scalar_outputs = tensor2float(scalar_outputs)
                     # image_outputs = {"pred_depth": outputs['refined_depth'][0:1] * mask[0:1], "gt_depth": depth_gt[0:1], "ref_img": imgs[0:1, 0]}
                     image_outputs = {"pred_depth": outputs['refined_depth'][0] * mask[0],
