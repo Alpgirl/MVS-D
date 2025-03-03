@@ -83,11 +83,16 @@ class DotDict:
 
 
 def main(gpu, args, config, bnvconfig):
-    rank = args.node_rank * args.gpus + gpu
+    # rank = args.node_rank * args.gpus + gpu
+    rank = args.rank
+    # print(f"rank={rank}, args.rank={args.rank}")
+    print(f"rank={gpu}")
     torch.cuda.set_device(gpu)
     if args.DDP:
-        dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank, group_name='mtorch')
-        print('Nodes:', args.nodes, 'Node_rank:', args.node_rank, 'Rank:', rank, 'GPU_id:', gpu)
+        # dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank, group_name='mtorch')
+        dist.init_process_group(backend='nccl', init_method='env://',
+                                            world_size=args.world_size, rank=rank)
+        # print('Nodes:', args.nodes, 'Node_rank:', args.node_rank, 'Rank:', rank, 'GPU_id:', gpu)
 
     train_data_loaders, valid_data_loaders = [], []
     train_sampler = None
@@ -210,7 +215,8 @@ def main(gpu, args, config, bnvconfig):
     else:
         writer = None
     # writer = SummaryWriter(config.log_dir)
-    model.cuda(gpu)
+    # model.cuda(gpu)
+    model.to(device=dist.get_rank())
 
     is_finetune = config['arch'].get('finetune', False)
     reset_sche = config['arch'].get('reset_sche', True)
@@ -264,9 +270,15 @@ def main(gpu, args, config, bnvconfig):
     if args.DDP: # False
         if rank == 0:
             print("Let's use", torch.cuda.device_count(), "GPUs!")
+        print(1)
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], output_device=gpu, find_unused_parameters=False)
+        print(2)
+        try:
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], output_device=gpu, find_unused_parameters=True)
+        except Exception as e:
+            print(e)
 
+    print(3)
     trainer = Trainer(model, optimizer, config=config, bnvconfig=bnvconfig, data_loader=train_data_loaders, ddp=args.DDP,
                       valid_data_loader=valid_data_loaders, lr_scheduler=lr_scheduler, writer=writer, rank=rank,
                       train_sampler=train_sampler, debug=args.debug)
@@ -295,6 +307,7 @@ if __name__ == '__main__':
     args.add_argument('--DDP', action='store_true', help='DDP')
     args.add_argument('--balanced_training', action='store_true', help='train with balanced DTU and blendedmvs, '
                                                                        'use the less one to decide the epoch iterations')
+    args.add_argument("--local-rank", type=int, default=0)
     args.add_argument('--debug', action='store_true', help='slow down the training, but can check fp16 overflow')
 
     # custom cli options to modify configuration from default values given in json file.
@@ -311,12 +324,17 @@ if __name__ == '__main__':
     ngpu = torch.cuda.device_count()
     args.gpus = ngpu
     if args.DDP:
-        args.world_size = args.nodes * args.gpus
-        os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] = '1122'
+        # print(f"Global rank: {os.environ.get('SLURM_PROCID')}, local rank: {os.environ.get('SLURM_LOCALID')}")
+        args.world_size = int(os.environ.get('WORLD_SIZE', os.environ.get('SLURM_NTASKS')))
+        # Likewise for RANK and LOCAL_RANK:
+        args.rank = int(os.environ.get('RANK', os.environ.get('SLURM_PROCID')))
+        args.gpu = int(os.environ.get('LOCAL_RANK', os.environ.get('SLURM_LOCALID')))
+        # args.world_size = args.nodes * args.gpus
+        # os.environ['MASTER_ADDR'] = 'localhost'
+        # os.environ['MASTER_PORT'] = '29500'#'1122'
     else:
         args.world_size = 1
-
+    print(f"Global Rank: {args.rank}, Local Rank: {args.gpu}, World Size: {args.world_size}")
     if args.dataloader_type is not None:
         config['data_loader'][0]['type'] = args.dataloader_type
         # if args.dataloader_type == 'BlendedLoader':
@@ -339,6 +357,6 @@ if __name__ == '__main__':
     else:
         bnvconfig = {}
 
-    os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'INFO'
-    mp.spawn(main, nprocs=args.world_size, args=(args, config, bnvconfig))
-    # main(0, args, config)
+    os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'#'INFO'
+    # mp.spawn(main, nprocs=args.world_size, args=(args, config, bnvconfig))
+    main(args.gpu, args, config, bnvconfig)
