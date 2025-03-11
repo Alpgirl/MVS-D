@@ -89,13 +89,13 @@ class Trainer(BaseTrainer):
     #     return config
 
 
-    def prepare_bnvfusion_input(self, sample_cuda, b_start, b_end):
+    def prepare_bnvfusion_input(self, sample_cuda, b_start=None, b_end=None):
         sensor_depths = None
         sensor_depths_masks = None
         if b_start is None:
             b_start = 0
         if b_end is None:
-            b_end = sample_cuda['sensor_extr'].shape[0]
+            b_end = sample_cuda['sensor_depths'].shape[0]
         
         # print(f"input_pts full: {len(sample_cuda['input_pts'])}, b_start: {b_start}, b_end: {b_end}")
         # prepare sensor data
@@ -353,7 +353,8 @@ class Trainer(BaseTrainer):
         val_metrics = self._valid_epoch(epoch)
 
         if self.ddp:
-            dist.barrier(group=dist_group)
+            print(f"Dist group: {dist_group}")
+            # dist.barrier(group=dist_group)
             for k in val_metrics:
                 dist.all_reduce(val_metrics[k], group=dist_group, async_op=False)
                 val_metrics[k] /= dist.get_world_size(dist_group)
@@ -399,13 +400,12 @@ class Trainer(BaseTrainer):
                         sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda)
                     else:
                         sensor_data, pointnet_model, neural_map = None, None, None
-
                     if self.fp16:
                         with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
                             outputs = self.model.forward(imgs, cam_params, depth_values, sensor_data, pointnet_model, neural_map, self.dimensions)
                     else:
                         outputs = self.model.forward(imgs, cam_params, depth_values, sensor_data, pointnet_model, neural_map, self.dimensions)
-
+                    
                     depth_est = outputs["refined_depth"].detach()
                     if self.config['data_loader'][val_data_idx]['type'] == 'BlendedLoader':
                         scalar_outputs = collections.defaultdict(float)

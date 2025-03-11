@@ -180,10 +180,11 @@
                 "height": 1152,
                 "width": 1536,
                 "shuffle": true,
-                "batch_size": 10,
+                "batch_size": 16,
+                "eval_batch_size": 8,
                 "random_crop": true,
                 "consist_crop": false,
-                "num_workers": 0,
+                "num_workers": 4,
                 "augment": true,
                 "aug_args": {
                     "brightness": 0.2,
@@ -206,12 +207,12 @@
         }
     },
     "trainer": {
-        "epochs": 3,
+        "epochs": 10,
         "seq": true,
         "save_dir": "saved/",
         "save_period": 1,
         "verbosity": 2,
-        "logging_every": 1,
+        "logging_every": 10,
         "early_stop": 10,
         "tensorboard": false,
         "depth_scale": 1.0,

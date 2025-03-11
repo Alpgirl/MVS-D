@@ -2,13 +2,13 @@
 #SBATCH --job-name='i.larina.mvs-d.run_debug_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=00:60:00
+#SBATCH --time=40:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
-#SBATCH --mem=50G
+#SBATCH --mem=80G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
@@ -20,9 +20,9 @@ BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
 
 # Set the experiment name (optional, passed as the second argument)
 if [ -z "$1" ]; then
-    EXPERIMENT_NAME="MVSD++_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
+    EXPERIMENT_NAME="MVSD++_debug_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
 else
-    EXPERIMENT_NAME="MVSD++_$(date +%Y%m%d_%H%M%S)_$1"
+    EXPERIMENT_NAME="MVSD++_debug_$(date +%Y%m%d_%H%M%S)_$1"
 fi
 
 # export MASTER_PORT=30371
@@ -61,21 +61,13 @@ cd /app/
 export PYTHONPATH=$PYTHONPATH:$PWD
 
 cd MVSFormerPlusPlus/
-# python -c "import os; print(os.environ.keys())"
+
 # Run the training script with the specified config file and experiment name
-# -m torch.distributed.launch --nproc_per_node=1 --master_port=2342
-# CUDA_VISIBLE_DEVICES=0 
-python -m torch.distributed.launch --nnodes=1 --nproc_per_node=1 train_sk3d.py \
-            --device 0 \
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 train_sk3d.py \
             --config $CONFIG_FILENAME \
             --bnvconfig $BNV_CONFIG_FILENAME \
             --exp_name $EXPERIMENT_NAME \
             --DDP
-# srun torchrun --nnodes=1 --nproc_per_node=1 train_sk3d.py \
-#                                 --config $CONFIG_FILENAME \
-#                                 --bnvconfig $BNV_CONFIG_FILENAME \
-#                                 --exp_name $EXPERIMENT_NAME \
-#                                 --DDP
 
 conda deactivate
 

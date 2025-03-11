@@ -33,10 +33,10 @@ class NeuralMap:
         pointnet,
         working_dir,
     ):
-        if "/" in config.dataset.scan_id:
-            self.dataset_name, self.scan_id = config.dataset.scan_id.split("/")
-        else:
-            self.scan_id = config.dataset.scan_id
+        # if "/" in config.dataset.scan_id:
+        #     self.dataset_name, self.scan_id = config.dataset.scan_id.split("/")
+        # else:
+        #     self.scan_id = config.dataset.scan_id
         min_coords, max_coords, n_xyz = voxel_utils.get_world_range(
             dimensions, config.model.voxel_size)
         self.pointnet = pointnet
@@ -52,14 +52,14 @@ class NeuralMap:
         self.voxel_size = config.model.voxel_size
         self.n_xyz = n_xyz
         self.dimensions = dimensions
-        self.sampling_size = config.dataset.num_pixels
+        # self.sampling_size = config.dataset.num_pixels
         self.train_ray_splits = config.model.train_ray_splits
         self.ray_max_dist = config.model.ray_tracer.ray_max_dist
         self.truncated_units = config.model.ray_tracer.truncated_units
         self.truncated_dist = min(self.truncated_units * self.voxel_size * 0.5, 0.1)
         self.depth_scale = 1000.
         self.sdf_delta = None
-        self.skip_images = config.dataset.skip_images
+        # self.skip_images = config.dataset.skip_images
         self.tsdf_voxel_size = 0.025
         self.sdf_delta_weight = config.model.sdf_delta_weight
         min_coords, max_coords, n_xyz = voxel_utils.get_world_range(
@@ -67,21 +67,20 @@ class NeuralMap:
         vol_bnds = np.zeros((3,2))
         vol_bnds[:, 0] = min_coords
         vol_bnds[:, 1] = max_coords
-        self.tsdf_vol = fusion.TSDFVolume(
-            vol_bnds,
-            voxel_size=self.tsdf_voxel_size)
+        # self.tsdf_vol = fusion.TSDFVolume(
+        #     vol_bnds,
+        #     voxel_size=self.tsdf_voxel_size)
         
         self.frames = []
-        self.iterable_dataset = IterableInferenceDataset(
-            self.frames, self.ray_max_dist, self.bound_min.cpu(),
-            self.bound_max.cpu(), self.n_xyz, self.sampling_size, config.dataset.confidence_level)
+        # self.iterable_dataset = IterableInferenceDataset(
+        #     self.frames, self.ray_max_dist, self.bound_min.cpu(),
+        #     self.bound_max.cpu(), self.n_xyz, self.sampling_size, config.dataset.confidence_level)
 
     def integrate(self, frame):
         if len(frame['input_pts']) == 0:
             return None
         with torch.no_grad():
             # local-level fusion
-
             # extract features and neighbours for each point
             # [n_pts, feat dim], [n_pts, 1], _, [n_pts, 3], n 
             fine_feats, fine_weights, _, fine_coords, fine_n_pts = self.pointnet.encode_pointcloud(
@@ -191,13 +190,13 @@ class NeuralMap:
         resized_tsdf_volume *= self.sdf_delta_weight
         return resized_tsdf_volume
 
-    def save(self):
-        # save tsdf volume
-        tsdf_out_path = os.path.join(self.working_dir, self.scan_id + ".npy")
-        tsdf_vol, _ = self.tsdf_vol.get_volume()
-        tsdf_vol = tsdf_vol * (self.tsdf_voxel_size * 5)
-        np.save(tsdf_out_path, tsdf_vol)
-        self.volume.save(os.path.join(self.working_dir, "final"))
+    # def save(self):
+    #     # save tsdf volume
+    #     tsdf_out_path = os.path.join(self.working_dir, self.scan_id + ".npy")
+    #     tsdf_vol, _ = self.tsdf_vol.get_volume()
+    #     tsdf_vol = tsdf_vol * (self.tsdf_voxel_size * 5)
+    #     np.save(tsdf_out_path, tsdf_vol)
+    #     self.volume.save(os.path.join(self.working_dir, "final"))
         
 def track_memory():
     div_GB = 1024 * 1024 * 1024

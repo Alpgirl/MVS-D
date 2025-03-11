@@ -47,12 +47,6 @@
         "pretrained_model": "/home/kejie/repository/fast_sdf/logs/train/2021-10-21/22-37-03/lightning_logs/version_0/checkpoints/last.ckpt",
         "depth_scale": 1000
     },
-    "dataset": {
-        "scan_id": "green_funnels",
-        "num_pixels": 5000,
-        "skip_images": 10,
-        "confidence_level": 0
-    },
     "optimizer": {
         "_target_package_": "torch.optim",
         "_class_": "Adam",

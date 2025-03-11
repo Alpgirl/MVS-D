@@ -12,12 +12,13 @@ from datasets.data_io import *
 from kornia.geometry.depth import depth_to_normals, depth_to_3d_v2
 
 import bnv_fusion.src.utils.geometry as geometry
-# from bnv_fusion.src.datasets.fusion_inference_dataset import SkoltechInferenceDataset
 import copy
+import warnings
 
 from .color_jittor import ColorJitter
 
 s_h, s_w = 0, 0
+warnings.filterwarnings("ignore", category=DeprecationWarning, message="Since kornia 0.8.0 the `depth_to_3d` is deprecated.*")
 
 class RandomGamma():
     def __init__(self, min_gamma=0.7, max_gamma=1.5, clip_image=False):
@@ -94,9 +95,9 @@ class Sk3DDataset(Dataset):
 
         if mode == 'train' or mode == 'val':
             self.light_types = [
-                            'flash@best', 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
-                            'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
-                            'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']
+                            'flash@best']#, 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
+                            # 'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
+                            # 'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']
         else:
             self.light_types = ['ambient@best']
         self.metas = self.build_list()
@@ -106,16 +107,7 @@ class Sk3DDataset(Dataset):
 
     def calculate_dimensions(self):
         bounds = np.load("/app/bounds_v1.npy")
-        # mini = np.ones(3) * np.finfo(np.float32).max
-        # maxi = np.ones(3) * np.finfo(np.float32).min
-        # mesh = trimesh.load(self.gt_mesh)
-        # v = np.asarray(mesh.vertices)
-        # mini = np.minimum(mini, v.min(axis=0))
-        # maxi = np.maximum(maxi, v.max(axis=0))
-        min_coords = np.min(bounds, axis=1)
-
-        # return (maxi - mini) / 2
-        return bounds #(bounds[:,1] - bounds[:,0])
+        return bounds
     
 
     def build_list(self):
@@ -141,7 +133,7 @@ class Sk3DDataset(Dataset):
             with open(os.path.join(self.datapath, pair_file)) as f:
                 num_viewpoint = int(f.readline())
                 # viewpoints
-                for view_idx in range(num_viewpoint):
+                for view_idx in range(2):#num_viewpoint):
                     ref_view = int(f.readline().rstrip())
                     src_views = [int(x) for x in f.readline().rstrip().split()[1::2]]
 
@@ -157,6 +149,7 @@ class Sk3DDataset(Dataset):
                     
 
         self.interval_scale = interval_scale_dict
+        print(metas)
         print("dataset", self.mode, "metas:", len(metas), "interval_scale:{}".format(self.interval_scale))
         return metas
         
