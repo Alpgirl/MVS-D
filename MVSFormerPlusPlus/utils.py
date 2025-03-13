@@ -58,6 +58,7 @@ def tensor2float(vars):
     elif isinstance(vars, torch.Tensor):
         return vars.data.item()
     else:
+        print(vars)
         raise NotImplementedError("invalid input type {} for tensor2float".format(type(vars)))
 
 

@@ -19,7 +19,7 @@ from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
 from bnv_fusion.src.models.sparse_volume import SparseVolume
 from bnv_fusion.src.utils.render_utils import calculate_loss
 from bnv_fusion.src.utils.common import to_cuda, Timer
-import bnv_fusion.third_parties.fusion as fusion
+# import bnv_fusion.third_parties.fusion as fusion
 
 
 log = hydra_utils.get_logger(__name__)

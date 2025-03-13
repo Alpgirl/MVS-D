@@ -153,11 +153,13 @@ class Trainer(BaseTrainer):
         dist_group = torch.distributed.group.WORLD
 
         global_step = 0
+        self.wandb_global_step = global_step
         scaled_grads = collections.defaultdict(list)
         pre_scale = int(self.scaler.get_scale()) if self.fp16 else None
 
         # training
         for dl in self.data_loader:
+            print(f"dl: {len(dl)}")
             if self.rank == 0:
                 t_loader = tqdm(dl, desc=f"Epoch: {epoch}/{self.epochs}. Train.",
                                 bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', total=len(dl))
@@ -205,6 +207,7 @@ class Trainer(BaseTrainer):
                 iters_to_accumulate = imgs.shape[0] // bs
                 total_loss = torch.tensor(0.0, device="cuda")
                 total_loss_dict = collections.defaultdict(float)
+                print(f"iters_to_accum: {iters_to_accumulate}")
 
                 for bi in range(iters_to_accumulate):
                     b_start = bi * bs
@@ -295,6 +298,7 @@ class Trainer(BaseTrainer):
                     self.lr_scheduler.step()
                 global_step = (epoch - 1) * len(dl) + batch_idx
                 self.wandb_global_step = global_step
+                print(f"WANDB GLOBAL STEP {self.wandb_global_step}")
 
                 # forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1000.0 ** 2)
                 # print(f"imgs shape:{imgs.shape},, iters_to_accumulate:{iters_to_accumulate}, max_mem: {forward_max_memory_allocated}")
@@ -353,8 +357,7 @@ class Trainer(BaseTrainer):
         val_metrics = self._valid_epoch(epoch)
 
         if self.ddp:
-            print(f"Dist group: {dist_group}")
-            # dist.barrier(group=dist_group)
+            dist.barrier(group=dist_group)
             for k in val_metrics:
                 dist.all_reduce(val_metrics[k], group=dist_group, async_op=False)
                 val_metrics[k] /= dist.get_world_size(dist_group)

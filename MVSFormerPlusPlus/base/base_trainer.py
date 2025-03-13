@@ -81,7 +81,7 @@ class BaseTrainer:
 
             if self.rank == 0 and epoch % self.epoch_inter == 0:
                 # save logged informations into log dict
-                log = {'epoch': epoch}
+                log = {'epoch': float(epoch)}
                 log.update(result)
 
                 save_scalars(self.writer, 'validation_epoch', log, self.wandb_global_step)

@@ -10,11 +10,11 @@
         "args": {
             "model_type": "DINOv2-base",
             "freeze_vit": true,
-            "rgb_encoder_freeze": false,
-            "freeze_stages": false,
-            "rgbd": false,
+            "rgb_encoder_freeze": true,
+            "freeze_stages": true,
+            "rgbd": true,
             "sdf_debug": false,
-            "use_adapter": false,
+            "use_adapter": true,
             "rescale": 0.4375,
             "vit_ch": 768,
             "out_ch": 64,
@@ -184,7 +184,7 @@
                 "eval_batch_size": 1,
                 "random_crop": true,
                 "consist_crop": false,
-                "num_workers": 1,
+                "num_workers": 0,
                 "augment": true,
                 "aug_args": {
                     "brightness": 0.2,
@@ -207,7 +207,7 @@
         }
     },
     "trainer": {
-        "epochs": 5,
+        "epochs": 2,
         "seq": true,
         "save_dir": "saved/",
         "save_period": 1,

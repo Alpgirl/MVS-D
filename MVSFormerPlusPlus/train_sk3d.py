@@ -86,17 +86,23 @@ class DotDict:
         raise AttributeError(f"'DotDict' object has no attribute '{item}'")
 
 
-def main(gpu, args, config, bnvconfig):
+def main(local_rank, args, config, bnvconfig):
     # rank = args.node_rank * args.gpus + gpu
     rank = args.rank
     # print(f"rank={rank}, args.rank={args.rank}")
     # print(f"local rank={gpu}")
-    torch.cuda.set_device(gpu)
     if args.DDP:
         # dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank, group_name='mtorch')
-        dist.init_process_group(backend='nccl', init_method='env://',
-                                            world_size=args.world_size, rank=rank)
+        dist.init_process_group(backend='nccl',
+                                init_method='tcp://localhost:29500',
+                                rank=local_rank,
+                                world_size=args.world_size)
+
         # print('Nodes:', args.nodes, 'Node_rank:', args.node_rank, 'Rank:', rank, 'GPU_id:', gpu)
+    torch.cuda.set_device(local_rank)
+    # print(f"process {local_rank}  is reaching the barrier!")
+    # dist.barrier(device_ids=[local_rank])
+    # print(f"process {local_rank}  passed the barrier!")
 
     train_data_loaders, valid_data_loaders = [], []
     train_sampler = None
@@ -142,7 +148,7 @@ def main(gpu, args, config, bnvconfig):
             train_dataset = Sk3DDataset(**train_dl_args)
 
             train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=rank, shuffle=True)
-        
+        print(f"train batch size: {train_dl_args['batch_size']}")
         train_loader = DataLoader(train_dataset, shuffle=False, pin_memory=True, batch_size=train_dl_args['batch_size'],
                                   num_workers=train_dl_args['num_workers'], sampler=train_sampler, drop_last=True, collate_fn=custom_collate_fn) # train_dl_args['num_workers'] 
         train_data_loaders.append(train_loader)
@@ -219,7 +225,7 @@ def main(gpu, args, config, bnvconfig):
     else:
         writer = None
     # writer = SummaryWriter(config.log_dir)
-    model.cuda(gpu)
+    model.cuda(local_rank)
     # model.to(device=dist.get_rank())
 
     is_finetune = config['arch'].get('finetune', False)
@@ -271,8 +277,9 @@ def main(gpu, args, config, bnvconfig):
         for _ in tqdm(range(checkpoint['epoch'] * len(train_data_loaders[0])), disable=True if rank != 0 else False):
             lr_scheduler.step()
 
-    # for k, v in model.named_parameters():
-    #     print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
+    for i, (k, v) in enumerate(model.named_parameters()):
+        if i in [437]:
+            print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
 
     # raise
 
@@ -281,7 +288,7 @@ def main(gpu, args, config, bnvconfig):
             print("Let's use", torch.cuda.device_count(), "GPUs!")
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         try:
-            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])#, output_device=gpu, find_unused_parameters=True)
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)#, output_device=gpu, find_unused_parameters=True)
         except Exception as e:
             print(e)
 
@@ -313,7 +320,7 @@ if __name__ == '__main__':
     args.add_argument('--DDP', action='store_true', help='DDP')
     args.add_argument('--balanced_training', action='store_true', help='train with balanced DTU and blendedmvs, '
                                                                        'use the less one to decide the epoch iterations')
-    args.add_argument("--local-rank", type=int, default=0)
+    # args.add_argument("--local-rank", type=int, default=0)
     args.add_argument('--debug', action='store_true', help='slow down the training, but can check fp16 overflow')
 
     # custom cli options to modify configuration from default values given in json file.
@@ -327,24 +334,28 @@ if __name__ == '__main__':
     import os
     print(args)
 
-    # ngpu = torch.cuda.device_count()
+    ngpu = torch.cuda.device_count()
     # args.gpus = ngpu
     if args.DDP:
         # print(f"Global rank: {os.environ.get('SLURM_PROCID')}, local rank: {os.environ.get('SLURM_LOCALID')}")
-        args.world_size = int(os.environ.get('WORLD_SIZE', os.environ.get('SLURM_NTASKS')))
+        args.world_size = torch.cuda.device_count() #int(os.environ.get('WORLD_SIZE', os.environ.get('SLURM_NTASKS')))
         # # Likewise for RANK and LOCAL_RANK:
         args.rank = int(os.environ.get('RANK', os.environ.get('SLURM_PROCID')))
-        # args.gpu = int(os.environ.get('LOCAL_RANK', os.environ.get('SLURM_LOCALID')))
-        args.gpu = args.rank % torch.cuda.device_count()
+        local_rank = int(os.environ.get('LOCAL_RANK', os.environ.get('SLURM_LOCALID')))
+
+        # args.gpu = args.rank % torch.cuda.device_count()
         # args.world_size = args.nodes * args.gpus
         # os.environ['MASTER_ADDR'] = 'localhost'
-        # os.environ['MASTER_PORT'] = '29500'#'1122'
+        # os.environ['MASTER_PORT'] = '1122'
         # args.rank = int(os.environ["RANK"])
         # args.gpu = int(os.environ["LOCAL_RANK"])
         # args.world_size = int(os.environ["WORLD_SIZE"])
+        print(f"Global Rank: {args.rank}, Local Rank: {local_rank}, World Size: {args.world_size}, n_gpu: {torch.cuda.device_count()}")
     else:
+        local_rank = 0
+        args.rank = 0
         args.world_size = 1
-    print(f"Global Rank: {args.rank}, Local Rank: {args.gpu}, World Size: {args.world_size}, n_gpu: {torch.cuda.device_count()}")
+    
     if args.dataloader_type is not None:
         config['data_loader'][0]['type'] = args.dataloader_type
         # if args.dataloader_type == 'BlendedLoader':
@@ -366,8 +377,13 @@ if __name__ == '__main__':
     else:
         bnvconfig = {}
 
+    # os.environ["TORCH_CPP_LOG_LEVEL"]="INFO"
     os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'#'INFO'
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     os.environ['NCCL_DEBUG'] = 'INFO'
-    mp.spawn(main, nprocs=args.world_size, args=(args, config, bnvconfig))
-    # main(args.gpu, args, config, bnvconfig)
+    os.environ["NCCL_DEBUG_SUBSYS"]="COLL"
+    # import socket
+    # ip_addr = socket.gethostbyname(socket.gethostname())
+    # print(ip_addr)
+    # mp.spawn(main, nprocs=args.world_size, args=(args, config, bnvconfig))
+    main(local_rank, args, config, bnvconfig)

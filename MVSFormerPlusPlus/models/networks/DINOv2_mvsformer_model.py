@@ -62,10 +62,10 @@ class DINOv2MVSNet(nn.Module):
                 'module.decoder_vit.': self.decoder_vit,
                 'module.FMT_module.': self.FMT_module
         }
-        # for prefix, module in module_prefixes.items():
-        #     # Filter and load only the weights for the current module
-        #     module_state_dict = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
-        #     module.load_state_dict(module_state_dict, strict=False)
+        for prefix, module in module_prefixes.items():
+            # Filter and load only the weights for the current module
+            module_state_dict = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
+            module.load_state_dict(module_state_dict, strict=False)
 
         # freeze encoder layers
         self.rgb_encoder_freeze = args.get("rgb_encoder_freeze", False)
