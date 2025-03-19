@@ -15,7 +15,7 @@ DTU:
 CUDA_VISIBLE_DEVICES=0 python test.py --dataset dtu --batch_size 1  --testpath ./data/dtu/   --testlist ./lists/dtu/test.txt --resume ./pretrained_models/model_best.pth --outdir ./out/   --interval_scale 1.06 --num_view 5 --numdepth 192 --max_h 1152 --max_w 1536 --filter_method gipuma --disp_threshold 0.1 --num_consistent 2 --prob_threshold 0.5
 
 Skoltech3D:
-CUDA_VISIBLE_DEVICES=0 python test.py --dataset sk3d --batch_size 1  --testpath /sk3d/   --testlist ./lists/sk3d/test.txt --resume ./pretrained_models/model_best.pth --outdir ./out/   --interval_scale 1.0 --num_view 10 --numdepth 256 --max_h 1920  --max_w 2368 --filter_method gipuma --disp_threshold 0.1 --num_consistent 2 --prob_threshold 0.5
+CUDA_VISIBLE_DEVICES=0 python test.py --config ./config/mvsformer++_test_sk3d.json --bnvconfig ./config/bnvfusion_sk3d.json --dataset sk3d --batch_size 1  --testpath /sk3d/   --testlist ./lists/sk3d/test.txt --resume ./saved/models/DINOv2/$EXP_NAME/model_best.pth --outdir ./saved/models/DINOv2/$EXP_NAME/test/   --interval_scale 1.00 --num_view 5 --numdepth 256 --max_h 1920 --max_w 2368 --prob_threshold 0.5 --filter_method dpcd --combine_conf --tmps 5.0,5.0,5.0,1.0
 
 BNV_fusion:
 python src/run_e2e.py model=fusion_pointnet_model dataset=sk3d_dataset dataset.scan_id="sk3d/green_funnels" trainer.checkpoint=$PWD/pretrained/pointnet_tcnn.ckpt model.tcnn_config=$PWD/src/models/tcnn_config.json model.mode="demo"

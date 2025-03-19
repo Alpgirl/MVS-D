@@ -72,11 +72,12 @@ class Sk3DDataset(Dataset):
         self.rgbd = kwargs.get('rgbd', False)
         self.sensor_depth_resize = kwargs.get('sensor_depth_resize', self.resize) # this is resize for NeuralFusion expected input size
 
-        self.multi_scale = kwargs.get('multi_scale', False)
-        self.multi_scale_args = kwargs['multi_scale_args']
-        
-        self.scales = self.multi_scale_args['scales']#[::-1]
-        self.resize_range = self.multi_scale_args['resize_range']
+        if mode == "train":
+            self.multi_scale = kwargs.get('multi_scale', False)
+            self.multi_scale_args = kwargs['multi_scale_args']
+            
+            self.scales = self.multi_scale_args['scales']#[::-1]
+            self.resize_range = self.multi_scale_args['resize_range']
 
         self.batch_size = kwargs.get('batch_size', 4) if mode == 'train' else kwargs.get('eval_batch_size', 4)
         self.world_size = kwargs.get('world_size', 1)
@@ -95,7 +96,8 @@ class Sk3DDataset(Dataset):
 
         if mode == 'train' or mode == 'val':
             self.light_types = [
-                            'flash@best']#, 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
+                                'ambient@best']
+                            # 'flash@best', 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
                             # 'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
                             # 'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']
         else:
@@ -149,7 +151,7 @@ class Sk3DDataset(Dataset):
                     
 
         self.interval_scale = interval_scale_dict
-        print(metas)
+        # print(metas)
         print("dataset", self.mode, "metas:", len(metas), "interval_scale:{}".format(self.interval_scale))
         return metas
         

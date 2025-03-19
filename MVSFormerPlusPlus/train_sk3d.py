@@ -18,72 +18,12 @@ from datasets.sk3d_dataset import Sk3DDataset
 
 from trainer.mvsformer_trainer import Trainer
 from base.parse_config import ConfigParser
-from utils import get_lr_schedule_with_warmup, get_parameter_groups, init_model, read_json
+from utils import get_lr_schedule_with_warmup, get_parameter_groups, init_model, read_json, custom_collate_fn, DotDict
 
 SEED = 123
 torch.manual_seed(SEED)
 cudnn.benchmark = True
 cudnn.deterministic = False
-
-
-def custom_collate_fn(batch):
-    """
-    Custom collate function to handle lists of tensors with different sizes.
-    Args:
-        batch: A list of dictionaries returned by the dataset.
-
-    Returns:
-        A dictionary with properly batched arguments.
-    """
-    batched_data = {}
-    for key in batch[0]:
-        if isinstance(batch[0][key], list):  # If values have different shape (for bnvfusion)
-            batched_data[key] = [sublist[key] for sublist in batch]# for item in sublist[key]]
-
-        elif isinstance(batch[0][key], str):  # If values are strings
-            batched_data[key] = [d[key] for d in batch]
-
-        elif isinstance(batch[0][key], dict): # If values are dicts
-            data = {}
-            for k in batch[0][key].keys():
-                data[k] = []
-
-            for d in batch:
-                for k, v in d[key].items():
-                    v = v.clone().detach() if isinstance(v, torch.Tensor) else torch.tensor(v)
-                    data[k].append(v) 
-            for k in data.keys():
-                data[k] = torch.stack(data[k], axis=0)
-            
-            batched_data[key] = copy.deepcopy(data)
-
-        elif isinstance(batch[0][key], torch.Tensor):  # If values are tensors
-            batched_data[key] = torch.stack([d[key].clone().detach() for d in batch], dim=0)
-
-        else: # if values are numpy arrays
-            batched_data[key] = torch.stack([torch.tensor(d[key]) for d in batch], dim=0)
-    
-    return batched_data
-
-
-class DotDict:
-    def __init__(self, d):
-        # Initialize with a dictionary, allowing nested dictionaries too
-        for key, value in d.items():
-            if isinstance(value, dict):
-                value = DotDict(value)  # Recurse for nested dictionaries
-            self.__dict__[key] = value
-
-    def __check_attr__(self, atr):
-        print(self.__dict__.keys())
-        if atr in self.__dict__.keys():
-            return True
-        else:
-            return False
-
-    def __getattr__(self, item):
-        # Allow dot access even if attribute doesn't exist
-        raise AttributeError(f"'DotDict' object has no attribute '{item}'")
 
 
 def main(local_rank, args, config, bnvconfig):
@@ -178,7 +118,7 @@ def main(local_rank, args, config, bnvconfig):
             # eval_batch = 2
         # if dl_args['width'] > 1536:
             # eval_batch = 1
-        val_data_loader = DataLoader(val_dataset, shuffle=False, pin_memory=True, batch_size=eval_batch, num_workers=0, sampler=val_sampler, collate_fn=custom_collate_fn)
+        val_data_loader = DataLoader(val_dataset, shuffle=False, pin_memory=True, batch_size=eval_batch, num_workers=4, sampler=val_sampler, collate_fn=custom_collate_fn)
         valid_data_loaders.append(val_data_loader)
 
         if args.balanced_training: # False
@@ -277,9 +217,10 @@ def main(local_rank, args, config, bnvconfig):
         for _ in tqdm(range(checkpoint['epoch'] * len(train_data_loaders[0])), disable=True if rank != 0 else False):
             lr_scheduler.step()
 
-    for i, (k, v) in enumerate(model.named_parameters()):
-        if i in [437]:
-            print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
+    # DEBUG TWICE BACKWARD
+    # for i, (k, v) in enumerate(model.named_parameters()):
+    #     if i in [437]:
+    #         print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
 
     # raise
 
@@ -338,7 +279,7 @@ if __name__ == '__main__':
     # args.gpus = ngpu
     if args.DDP:
         # print(f"Global rank: {os.environ.get('SLURM_PROCID')}, local rank: {os.environ.get('SLURM_LOCALID')}")
-        args.world_size = torch.cuda.device_count() #int(os.environ.get('WORLD_SIZE', os.environ.get('SLURM_NTASKS')))
+        args.world_size = int(os.environ.get('WORLD_SIZE', os.environ.get('SLURM_NTASKS')))
         # # Likewise for RANK and LOCAL_RANK:
         args.rank = int(os.environ.get('RANK', os.environ.get('SLURM_PROCID')))
         local_rank = int(os.environ.get('LOCAL_RANK', os.environ.get('SLURM_LOCALID')))
@@ -380,10 +321,7 @@ if __name__ == '__main__':
     # os.environ["TORCH_CPP_LOG_LEVEL"]="INFO"
     os.environ['TORCH_DISTRIBUTED_DEBUG'] = 'DETAIL'#'INFO'
     # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    os.environ['NCCL_DEBUG'] = 'INFO'
-    os.environ["NCCL_DEBUG_SUBSYS"]="COLL"
-    # import socket
-    # ip_addr = socket.gethostbyname(socket.gethostname())
-    # print(ip_addr)
+    # os.environ['NCCL_DEBUG'] = 'INFO'
+    # os.environ["NCCL_DEBUG_SUBSYS"]="COLL"
     # mp.spawn(main, nprocs=args.world_size, args=(args, config, bnvconfig))
     main(local_rank, args, config, bnvconfig)

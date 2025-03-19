@@ -175,7 +175,8 @@ class StageNet(nn.Module):
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
         self.use_adapter = args.get("use_adapter", False)
-        self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
+        if self.use_adapter:
+            self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
 
     def forward(self, features, proj_matrices, depth_values, depth_features, interpolater, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]

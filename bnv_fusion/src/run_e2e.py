@@ -32,6 +32,7 @@ class NeuralMap:
         config,
         pointnet,
         working_dir,
+        device
     ):
         # if "/" in config.dataset.scan_id:
         #     self.dataset_name, self.scan_id = config.dataset.scan_id.split("/")
@@ -46,9 +47,10 @@ class NeuralMap:
             config.model.feature_vector_size,
             config.model.voxel_size,
             dimensions,
-            config.model.min_pts_in_grid)
-        self.bound_min = torch.from_numpy(min_coords).to("cuda").float()
-        self.bound_max = torch.from_numpy(max_coords).to("cuda").float()
+            config.model.min_pts_in_grid,
+            device=device)
+        self.bound_min = torch.from_numpy(min_coords).to(device).float()
+        self.bound_max = torch.from_numpy(max_coords).to(device).float()
         self.voxel_size = config.model.voxel_size
         self.n_xyz = n_xyz
         self.dimensions = dimensions

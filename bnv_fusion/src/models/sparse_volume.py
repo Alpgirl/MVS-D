@@ -492,7 +492,7 @@ class SparseVolume:
         self.dimensions = dimensions
         self.capacity = capacity
         self.voxel_size = voxel_size
-        self.o3c_device = o3c.Device(device)
+        self.o3c_device = o3c.Device(self.device.type, self.device.index)
         self.min_coords = torch.from_numpy(min_coords).float().to(device)
         self.max_coords = torch.from_numpy(max_coords).float().to(device)
         self.n_xyz = torch.from_numpy(np.asarray(n_xyz)).long().to(device)
@@ -537,7 +537,7 @@ class SparseVolume:
             key_element_shape=(3,),
             value_dtype=o3c.int64,
             value_element_shape=(1,),
-            device=o3c.Device(self.device)
+            device=o3c.Device(self.device.type, self.device.index)
         )
 
         active_keys = self.indexer.key_tensor()[active_buf_indices].to(o3c.int64)
@@ -551,7 +551,7 @@ class SparseVolume:
             )
         )
         buf_indices, masks = self.tensor_indexer.insert(active_keys, indexer_value)
-        masks = masks.cpu().numpy() if "cuda" in self.device else masks.numpy()
+        masks = masks.cpu().numpy() if "cuda" in self.device.type else masks.numpy()
         assert masks.all()
 
         self.active_coordinates = torch.utils.dlpack.from_dlpack(active_keys.to_dlpack())

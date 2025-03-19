@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 
 from .general_eval import MVSDataset
 from .sk3d_dataset import Sk3DDataset
+from MVSFormerPlusPlus.utils import custom_collate_fn
 
 np.random.seed(1234)
 
@@ -84,7 +85,7 @@ class Sk3DLoader(DataLoader):
         
         drop_last = mode == 'train'
         super().__init__(self.mvs_dataset, batch_size=batch_size, shuffle=shuffle,
-                         num_workers=num_workers, pin_memory=True, drop_last=drop_last)
+                         num_workers=num_workers, pin_memory=True, drop_last=drop_last, collate_fn=custom_collate_fn)
     
         self.n_samples = len(self.mvs_dataset)
 

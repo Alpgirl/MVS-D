@@ -3,6 +3,7 @@ import math
 import pdb
 import random
 import warnings
+import copy
 from collections import OrderedDict
 from itertools import repeat
 from pathlib import Path
@@ -641,3 +642,63 @@ def init_model(config, bnvconfig=None):
     else:
         raise NotImplementedError(f"Unknown model type {config['arch']['args']['model_type']}...")
     return model
+
+
+def custom_collate_fn(batch):
+    """
+    Custom collate function to handle lists of tensors with different sizes.
+    Args:
+        batch: A list of dictionaries returned by the dataset.
+
+    Returns:
+        A dictionary with properly batched arguments.
+    """
+    batched_data = {}
+    for key in batch[0]:
+        if isinstance(batch[0][key], list):  # If values have different shape (for bnvfusion)
+            batched_data[key] = [sublist[key] for sublist in batch]# for item in sublist[key]]
+
+        elif isinstance(batch[0][key], str):  # If values are strings
+            batched_data[key] = [d[key] for d in batch]
+
+        elif isinstance(batch[0][key], dict): # If values are dicts
+            data = {}
+            for k in batch[0][key].keys():
+                data[k] = []
+
+            for d in batch:
+                for k, v in d[key].items():
+                    v = v.clone().detach() if isinstance(v, torch.Tensor) else torch.tensor(v)
+                    data[k].append(v) 
+            for k in data.keys():
+                data[k] = torch.stack(data[k], axis=0)
+            
+            batched_data[key] = copy.deepcopy(data)
+
+        elif isinstance(batch[0][key], torch.Tensor):  # If values are tensors
+            batched_data[key] = torch.stack([d[key].clone().detach() for d in batch], dim=0)
+
+        else: # if values are numpy arrays
+            batched_data[key] = torch.stack([torch.tensor(d[key]) for d in batch], dim=0)
+    
+    return batched_data
+
+
+class DotDict:
+    def __init__(self, d):
+        # Initialize with a dictionary, allowing nested dictionaries too
+        for key, value in d.items():
+            if isinstance(value, dict):
+                value = DotDict(value)  # Recurse for nested dictionaries
+            self.__dict__[key] = value
+
+    def __check_attr__(self, atr):
+        print(self.__dict__.keys())
+        if atr in self.__dict__.keys():
+            return True
+        else:
+            return False
+
+    def __getattr__(self, item):
+        # Allow dot access even if attribute doesn't exist
+        raise AttributeError(f"'DotDict' object has no attribute '{item}'")

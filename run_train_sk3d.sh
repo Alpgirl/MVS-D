@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-#SBATCH --job-name='i.larina.mvs-d.run_debug_sk3d'
+#SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=2:00:00
+#SBATCH --time=90:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
-#SBATCH --mem=80G
+#SBATCH --mem=100G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
@@ -20,18 +20,10 @@ BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
 
 # Set the experiment name (optional, passed as the second argument)
 if [ -z "$1" ]; then
-    EXPERIMENT_NAME="MVSD++_debug_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
+    EXPERIMENT_NAME="MVSD++_train_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
 else
-    EXPERIMENT_NAME="MVSD++_debug_$(date +%Y%m%d_%H%M%S)_$1"
+    EXPERIMENT_NAME="MVSD++_train_$(date +%Y%m%d_%H%M%S)_$1"
 fi
-
-# export MASTER_PORT=30371
-# ### get the first node name as master address - customized for vgg slurm
-# ### e.g. master(gnodee[2-5],gnoded1) == gnodee2
-# echo "NODELIST="${SLURM_NODELIST}
-# master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
-# export MASTER_ADDR=$master_addr
-# echo "MASTER_ADDR="$MASTER_ADDR
 
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)

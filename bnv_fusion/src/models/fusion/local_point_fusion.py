@@ -20,10 +20,10 @@ import bnv_fusion.src.utils.pointnet_utils as pointnet_utils
 
 @register('lit_fusion_pointnet')
 class LitFusionPointNet(pl.LightningModule):
-    def __init__(self, cfg, **kwargs):
+    def __init__(self, cfg, device, **kwargs):
         super().__init__()
         self.cfg = cfg
-        self.to(cfg.device_type)
+        self.to(device) #to(cfg.device_type)
         self.dense_volume = cfg.trainer.dense_volume
         self.feat_dims = cfg.model.feature_vector_size
         self.interpolate_decode = cfg.model.nerf.interpolate_decode

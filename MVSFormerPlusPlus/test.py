@@ -9,6 +9,9 @@ import torch.nn.parallel
 from PIL import Image
 from plyfile import PlyData, PlyElement
 from torch.utils.data import Dataset, DataLoader, SequentialSampler
+from pytorch_lightning import seed_everything
+from bnv_fusion.src.models.fusion.local_point_fusion import LitFusionPointNet
+from bnv_fusion.src.run_e2e import NeuralMap
 
 import datasets.data_loaders as module_data
 import misc.fusion as fusion
@@ -26,6 +29,7 @@ parser = argparse.ArgumentParser(description='Predict depth, filter, and fuse')
 parser.add_argument('--model', default='mvsnet', help='select model')
 parser.add_argument('--device', default=None, type=str, help='indices of GPUs to enable (default: all)')
 parser.add_argument('--config', default=None, type=str, help='config file path (default: None)')
+parser.add_argument('-bnvc', '--bnvconfig', default=None, type=str, help='bnv fusion config file path (default: None)')
 
 parser.add_argument('--dataset', default='dtu', help='select dataset')
 parser.add_argument('--testpath', help='testing data dir for some scenes')
@@ -180,8 +184,45 @@ def rm_data(testlist, outdir):
         os.system(f'rm  {filter_data}')
 
 
+def prepare_bnvfusion_input(sample_cuda, bnvconfig, dimensions):    
+    # prepare sensor data
+    if 'sensor_depths' in sample_cuda.keys():
+        sensor_data = {
+            'depths': sample_cuda['sensor_depths'],
+            'masks': sample_cuda['sensor_depth_masks'],
+            'input_pts': sample_cuda['input_pts'],
+            'gt_pts': sample_cuda['gt_pts'],
+        }
+    else:
+        sensor_data = {}
+    
+    # prepare config
+    if bnvconfig.trainer.__check_attr__("seed"):
+        seed_everything(bnvconfig.trainer.seed)
+
+    # initialize model
+    print("initializing model")
+    pointnet_model = LitFusionPointNet(bnvconfig, device=sensor_data["depths"].device)
+    pretrained_weights = torch.load(bnvconfig.trainer.checkpoint)
+    pointnet_model.load_state_dict(pretrained_weights['state_dict'])
+    pointnet_model.eval()
+    pointnet_model.cuda()
+    pointnet_model.freeze()
+
+    # # initialize volume object
+    print("initializing volume object")
+    neural_map = NeuralMap(
+        dimensions,
+        bnvconfig,
+        pointnet_model,
+        working_dir="",
+        device=sensor_data["depths"].device)
+
+    return sensor_data, pointnet_model, neural_map
+
+
 # run model to save depth maps and confidence maps
-def save_depth(testlist, config):
+def save_depth(testlist, config, bnvconfig):
     # dataset, dataloader
     stage3 = config['data_loader'][0]['args'].get('stage3', False)
     
@@ -201,7 +242,7 @@ def save_depth(testlist, config):
         "use_short_range": args.use_short_range,
         "num_workers": 0,
         "stage3": stage3,
-        "rgbd": False
+        "rgbd": config['data_loader'][0]['args']['rgbd']
     }
 
     # test_data_loader = module_data.DTULoader(**init_kwags)
@@ -216,7 +257,7 @@ def save_depth(testlist, config):
         
     # model
     # build models architecture, then print to console
-    model = init_model(config)
+    model = init_model(config, bnvconfig)
 
     print('Loading checkpoint: {} ...'.format(config.resume))
     checkpoint = torch.load(str(config.resume))
@@ -257,8 +298,16 @@ def save_depth(testlist, config):
             B, V, _, H, W = imgs.shape
             depth_interval = sample_cuda['depth_values'][:, 1] - sample_cuda['depth_values'][:, 0]
             filenames = sample["filename"]
+
+            ## RETURN AND FIX RGBD ORIGIN
+            if config["arch"]["args"]["rgbd"]:
+                dimensions = test_data_loader.dataset.dimensions
+                sensor_data, pointnet_model, neural_map = prepare_bnvfusion_input(sample_cuda, bnvconfig, dimensions)
+            else:
+                dimensions, sensor_data, pointnet_model, neural_map = None, None, None, None
+
             with torch.cuda.amp.autocast(dtype=torch.bfloat16): #dtype=torch.bfloat16
-                outputs = model.forward(imgs, cam_params, sample_cuda['depth_values'], tmp=tmp)
+                outputs = model.forward(imgs, cam_params, sample_cuda['depth_values'], sensor_data, pointnet_model, neural_map, dimensions, tmp=tmp)
             torch.cuda.synchronize()
 
             end_time = time.time()
@@ -270,8 +319,6 @@ def save_depth(testlist, config):
             cams = sample["proj_matrices"]["stage{}".format(num_stage)].numpy()
             print('Iter {}/{}, Time:{} Res:{}'.format(batch_idx, len(test_data_loader), end_time - start_time,
                                                       outputs["refined_depth"][0].shape))
-            # # DEBUG for COST VOLUME
-            # break
            
             # save depth maps and confidence maps
             idx = 0
@@ -334,9 +381,13 @@ def save_depth(testlist, config):
 
 
 class TTDataset(Dataset):
-    def __init__(self, pair_folder, scan_folder, n_src_views=10):
+    def __init__(self, pair_folder, scan_folder, n_src_views=10, dataset="sk3d"):
         super(TTDataset, self).__init__()
-        pair_file = os.path.join(pair_folder, "pair.txt")
+        print(pair_folder)
+        if dataset == "sk3d":
+            pair_file = os.path.join(pair_folder, "tis_right/rgb/mvsnet_input/pair.txt")
+        else:
+            pair_file = os.path.join(pair_folder, "pair.txt")
         self.scan_folder = scan_folder
         self.pair_data = read_pair_file(pair_file)
         self.n_src_views = n_src_views
@@ -495,7 +546,7 @@ def dynamic_filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         points = fusion.idx_cam2world(idx_cam, sample['ref_cam'])[..., :3, 0].permute(0, 3, 1, 2)
 
         points_np = points.cpu().data.numpy()
-        mask_np = mask.cpu().data.numpy().astype(np.bool)
+        mask_np = mask.cpu().data.numpy().astype(np.bool_)
 
         ref_img = sample_np['ref_img'].data.numpy()
         for i in range(points_np.shape[0]):
@@ -531,7 +582,7 @@ def dynamic_filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
 
 def pcd_filter_worker(scan):
     save_name = '{}.ply'.format(scan)
-    pair_folder = os.path.join(args.testpath, scan)
+    pair_folder = os.path.join(args.testpath, 'addons', scan)
     scan_folder = os.path.join(args.outdir, scan)
     out_folder = os.path.join(args.outdir, scan)
     if args.filter_method == 'pcd':
@@ -552,6 +603,11 @@ if __name__ == '__main__':
     if args.depth_interals_ratio is not None:
         config['arch']['args']['depth_interals_ratio'] = [float(d) for d in args.depth_interals_ratio.split(',')]
 
+    if args.bnvconfig is not None:
+        bnvconfig = DotDict(dict(read_json(args.bnvconfig)))
+    else:
+        bnvconfig = {}
+
     if args.testlist != "all":
         with open(args.testlist) as f:
             content = f.readlines()
@@ -562,21 +618,21 @@ if __name__ == '__main__':
             if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
 
     # step1. save all the depth maps and the masks in outputs directory
-    save_depth(testlist, config)
+    save_depth(testlist, config, bnvconfig)
 
-    # step2. filter saved depth maps with photometric confidence maps and geometric constraints
-    if args.filter_method == "pcd" or args.filter_method == "dpcd":
-        # support multi-processing, the default number of worker is 4
-        pcd_filter(testlist)
+    # # step2. filter saved depth maps with photometric confidence maps and geometric constraints
+    # if args.filter_method == "pcd" or args.filter_method == "dpcd":
+    #     # support multi-processing, the default number of worker is 4
+    #     pcd_filter(testlist)
     
-    elif args.filter_method == 'gipuma':
-        prob_threshold = args.prob_threshold
-        # prob_threshold = [float(p) for p in prob_threshold.split(',')]
-        gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
-                      args.fusibile_exe_path)
-    else:
-        raise NotImplementedError
+    # elif args.filter_method == 'gipuma':
+    #     prob_threshold = args.prob_threshold
+    #     # prob_threshold = [float(p) for p in prob_threshold.split(',')]
+    #     gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
+    #                   args.fusibile_exe_path)
+    # else:
+    #     raise NotImplementedError
 
-    if args.filter_method == 'gipuma':
-        # remove some unneeded data
-        rm_data(testlist, args.outdir)
+    # if args.filter_method == 'gipuma':
+    #     # remove some unneeded data
+    #     rm_data(testlist, args.outdir)

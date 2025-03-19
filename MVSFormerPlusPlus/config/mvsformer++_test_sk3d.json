@@ -12,9 +12,9 @@
             "freeze_vit": true,
             "rgb_encoder_freeze": true,
             "freeze_stages": true,
-            "rgbd": true,
+            "rgbd": false,
             "sdf_debug": false,
-            "use_adapter": true,
+            "use_adapter": false,
             "rescale": 0.4375,
             "vit_ch": 768,
             "out_ch": 64,
@@ -142,8 +142,8 @@
                 "datapath": "/sk3d/",
                 "train_data_list": "lists/sk3d/train.txt",
                 "val_data_list": "lists/sk3d/val.txt",
-                "mode": "train",
-                "rgbd": true,
+                "mode": "test",
+                "rgbd": false,
                 "nviews": 5,
                 "num_depths": 192,
                 "multi_scale": true,
@@ -164,15 +164,15 @@
                         1.2
                     ],
                     "scale_batch_map": {
-                        "512": 1,
-                        "576": 1,
-                        "640": 1,
-                        "704": 1,
-                        "768": 1,
-                        "832": 1,
-                        "896": 1,
-                        "960": 1,
-                        "1024": 1
+                        "512": 4,
+                        "576": 4,
+                        "640": 4,
+                        "704": 4,
+                        "768": 2,
+                        "832": 2,
+                        "896": 2,
+                        "960": 2,
+                        "1024": 2
                     }
                 },
                 "interval_scale": 1.06,
@@ -180,8 +180,8 @@
                 "height": 1152,
                 "width": 1536,
                 "shuffle": true,
-                "batch_size": 1,
-                "eval_batch_size": 1,
+                "batch_size": 16,
+                "eval_batch_size": 8,
                 "random_crop": true,
                 "consist_crop": false,
                 "num_workers": 4,
@@ -205,18 +205,5 @@
             "min_lr": 0.01,
             "warmup_steps": 500
         }
-    },
-    "trainer": {
-        "epochs": 150,
-        "seq": true,
-        "save_dir": "saved/",
-        "save_period": 5,
-        "verbosity": 2,
-        "logging_every": 10,
-        "early_stop": 10,
-        "tensorboard": false,
-        "depth_scale": 1.0,
-        "eval_freq": 1,
-        "monitor": "min mean_error"
     }
 }

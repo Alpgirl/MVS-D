@@ -118,7 +118,7 @@ class Trainer(BaseTrainer):
 
         # initialize model
         print("initializing model")
-        pointnet_model = LitFusionPointNet(self.bnvconfig)
+        pointnet_model = LitFusionPointNet(self.bnvconfig, device=sensor_data["depths"].device)
         pretrained_weights = torch.load(self.bnvconfig.trainer.checkpoint)
         pointnet_model.load_state_dict(pretrained_weights['state_dict'])
         pointnet_model.eval()
@@ -131,7 +131,8 @@ class Trainer(BaseTrainer):
             self.dimensions,
             self.bnvconfig,
             pointnet_model,
-            working_dir="")
+            working_dir="",
+            device=sensor_data["depths"].device)
 
         return sensor_data, pointnet_model, neural_map
     
@@ -207,7 +208,8 @@ class Trainer(BaseTrainer):
                 iters_to_accumulate = imgs.shape[0] // bs
                 total_loss = torch.tensor(0.0, device="cuda")
                 total_loss_dict = collections.defaultdict(float)
-                print(f"iters_to_accum: {iters_to_accumulate}")
+                print(f"iter_to_accum: {iters_to_accumulate}, bs: {bs}, {imgs.shape[0]}")
+                print("rgbd:", self.rgbd)
 
                 for bi in range(iters_to_accumulate):
                     b_start = bi * bs
@@ -298,7 +300,6 @@ class Trainer(BaseTrainer):
                     self.lr_scheduler.step()
                 global_step = (epoch - 1) * len(dl) + batch_idx
                 self.wandb_global_step = global_step
-                print(f"WANDB GLOBAL STEP {self.wandb_global_step}")
 
                 # forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1000.0 ** 2)
                 # print(f"imgs shape:{imgs.shape},, iters_to_accumulate:{iters_to_accumulate}, max_mem: {forward_max_memory_allocated}")
