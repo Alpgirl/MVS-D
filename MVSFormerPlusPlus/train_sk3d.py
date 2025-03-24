@@ -218,11 +218,16 @@ def main(local_rank, args, config, bnvconfig):
             lr_scheduler.step()
 
     # DEBUG TWICE BACKWARD
-    # for i, (k, v) in enumerate(model.named_parameters()):
-    #     if i in [437]:
-    #         print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
+    # checkpoint = torch.load(config['arch']['args']['model_path'])
+    # state_dict = {}
+    # for k,v in checkpoint['state_dict'].items():
+    #     k_ = k[7:] if k.startswith('module.') else k
+    #     state_dict[k_] = v
+    # model.load_state_dict(state_dict, strict=True)
 
-    # raise
+    for i, (k, v) in enumerate(model.named_parameters()):
+        # if i in [437]:
+        print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
 
     if args.DDP: # False
         if rank == 0:
@@ -230,6 +235,7 @@ def main(local_rank, args, config, bnvconfig):
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         try:
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)#, output_device=gpu, find_unused_parameters=True)
+            model._set_static_graph()
         except Exception as e:
             print(e)
 

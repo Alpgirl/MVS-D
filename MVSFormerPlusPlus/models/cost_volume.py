@@ -176,7 +176,13 @@ class StageNet(nn.Module):
                 self.cost_reg = CostRegNet(in_channels, in_channels)
         self.use_adapter = args.get("use_adapter", False)
         if self.use_adapter:
-            self.adapter = torch.nn.Linear(in_features=bnvconfig.model.feature_vector_size+args["feat_chs"][0], out_features=args["feat_chs"][0])
+            in_ch = bnvconfig.model.feature_vector_size+args["feat_chs"][0]
+            out_ch = args["feat_chs"][0]
+            self.adapter = torch.nn.Linear(in_features=in_ch, out_features=out_ch)
+            # initialize adapter in the way that identity weight matrix corresponds to rgb feats and small random values correspond to depth feats
+            self.adapter.weight.data[:, :out_ch] = torch.eye(out_ch)
+            self.adapter.weight.data[:, out_ch:] = torch.normal(mean=0.0, std=0.001, size=(out_ch, abs(in_ch - out_ch)))
+            self.adapter.bias.data = torch.ones(out_ch) * 1e-5
 
     def forward(self, features, proj_matrices, depth_values, depth_features, interpolater, tmp, position3d=None): #dimensions
         ref_feat = features[:, 0]
@@ -234,15 +240,7 @@ class StageNet(nn.Module):
         ## DEBUG
         # # convert cost volume to pcd3d
         if depth_features is not None and self.stage_idx == 0:
-            # print(f"depth_values: {depth_values.shape}")
-            # print(f"cot volume: {volume_mean.shape}")
-            # print(depth_values[0][5], depth_values[1][5])
-
-            # min_coords = dimensions[:,0] - self.bnvconfig.model.voxel_size
-            # print(f"DEPTH VALUES DTYPE: {depth_values.dtype}")
             points = global_pcd_batch(depth_values, ref_proj) # [b, N, 3]
-            # torch.save(points[0], "bnvlogs/depth_hyp_sdf.pt")
-            # print(f"POINTS DTYPE: {points.dtype}")
 
             inter_pp = []
 
@@ -255,11 +253,12 @@ class StageNet(nn.Module):
             bnv_grid_feats = torch.stack(inter_pp, axis=0)
             # print(bnv_grid_feats.shape)
 
-            volume_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
+            volume_bnv_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
             # print(volume_mean.shape)
 
             if self.use_adapter:
-                volume_mean = self.adapter(volume_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+                volume_bnv_mean = self.adapter(volume_bnv_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+                volume_mean += volume_bnv_mean
 
             del points, pp, inter_pp, bnv_grid_feats
             interpolater.reset_pp_grids()

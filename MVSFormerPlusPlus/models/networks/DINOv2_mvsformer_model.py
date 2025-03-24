@@ -65,7 +65,7 @@ class DINOv2MVSNet(nn.Module):
         for prefix, module in module_prefixes.items():
             # Filter and load only the weights for the current module
             module_state_dict = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
-            module.load_state_dict(module_state_dict, strict=False)
+            module.load_state_dict(module_state_dict, strict=True)
 
         # freeze encoder layers
         self.rgb_encoder_freeze = args.get("rgb_encoder_freeze", False)
@@ -75,9 +75,9 @@ class DINOv2MVSNet(nn.Module):
                     param.requires_grad_(False)
 
         if os.path.exists(self.vit_args['vit_path']):
-            state_dict = torch.load(self.vit_args['vit_path'], map_location='cpu')
+            state_dict_vit = torch.load(self.vit_args['vit_path'], map_location='cpu')
             from utils import torch_init_model
-            torch_init_model(self.vit, state_dict, key='model')
+            torch_init_model(self.vit, state_dict_vit, key='model')
         else:
             print('!!!No weight in', self.vit_args['vit_path'], 'testing should neglect this.')
 
@@ -85,7 +85,7 @@ class DINOv2MVSNet(nn.Module):
         for i, f in enumerate(self.fusions):
             # Filter and load only the weights for the current module
             module_state_dict = {k[len(f'module.fusions.{i}.'):]: v for k, v in state_dict.items() if k.startswith(f'module.fusions.{i}.')}
-            result = f.load_state_dict(module_state_dict, strict=False)
+            f.load_state_dict(module_state_dict, strict=False)
         # freeze fusion stage layers
         self.freeze_stages = args.get("freeze_stages", False)
         if self.freeze_stages:

@@ -154,12 +154,14 @@ class Trainer(BaseTrainer):
         dist_group = torch.distributed.group.WORLD
 
         global_step = 0
-        self.wandb_global_step = global_step
+        self.wandb_global_step = 1 #global_step
         scaled_grads = collections.defaultdict(list)
         pre_scale = int(self.scaler.get_scale()) if self.fp16 else None
 
         # training
         for dl in self.data_loader:
+            # if epoch == 1:
+            #     break
             print(f"dl: {len(dl)}")
             if self.rank == 0:
                 t_loader = tqdm(dl, desc=f"Epoch: {epoch}/{self.epochs}. Train.",

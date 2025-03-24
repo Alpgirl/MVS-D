@@ -207,13 +207,13 @@
         }
     },
     "trainer": {
-        "epochs": 150,
+        "epochs": 100,
         "seq": true,
         "save_dir": "saved/",
         "save_period": 5,
         "verbosity": 2,
         "logging_every": 10,
-        "early_stop": 10,
+        "early_stop": 20,
         "tensorboard": false,
         "depth_scale": 1.0,
         "eval_freq": 1,
