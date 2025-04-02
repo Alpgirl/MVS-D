@@ -199,7 +199,7 @@
     ],
     "optimizer": {
         "args": {
-            "lr": 0.001,
+            "lr": 0.01,
             "vit_lr": 3e-05,
             "weight_decay": 0.01,
             "min_lr": 0.01,
@@ -207,7 +207,7 @@
         }
     },
     "trainer": {
-        "epochs": 100,
+        "epochs": 1000,
         "seq": true,
         "save_dir": "saved/",
         "save_period": 5,

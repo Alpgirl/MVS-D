@@ -2,20 +2,20 @@
 #SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=90:00:00
+#SBATCH --time=120:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=1
+#SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
-#SBATCH --mem=100G
+#SBATCH --mem=400G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
 source ./wandb/fix_wandb.sh
 
 # Set the configuration filename (passed as the first argument)
-CONFIG_FILENAME="./config/mvsformer++_debug_sk3d.json"
+CONFIG_FILENAME="./config/mvsformer++_sk3d.json"
 BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
 
 # Set the experiment name (optional, passed as the second argument)
@@ -37,6 +37,7 @@ SINGULARITY_SHELL=/bin/bash \
 srun singularity exec --nv \
     --bind /gpfs/gpfs0/3ddl/datasets/sk3d:/sk3d/ \
     --bind /trinity/home/i.larina/MVS-D/:/app \
+    --bind /trinity/home/g.bobrovskih/ongoing/mvsw3dfeatures/MVSFormerPlusPlus/saved/models/DINOv2/MVSFormer++_20241125_213612/:/weights \
     /trinity/home/i.larina/docker_imgs/larina_bnvmvs-zh-2025-02-25-d24ee6e6ce09.sif /bin/bash << EOF
 
 # Initialize Conda
@@ -55,7 +56,7 @@ export PYTHONPATH=$PYTHONPATH:$PWD
 cd MVSFormerPlusPlus/
 
 # Run the training script with the specified config file and experiment name
-CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 train_sk3d.py \
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nnodes=1 --nproc_per_node=4 train_sk3d.py \
             --config $CONFIG_FILENAME \
             --bnvconfig $BNV_CONFIG_FILENAME \
             --exp_name $EXPERIMENT_NAME \

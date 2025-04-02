@@ -135,7 +135,7 @@ class Sk3DDataset(Dataset):
             with open(os.path.join(self.datapath, pair_file)) as f:
                 num_viewpoint = int(f.readline())
                 # viewpoints
-                for view_idx in range(1):#num_viewpoint):
+                for view_idx in range(num_viewpoint):
                     ref_view = int(f.readline().rstrip())
                     src_views = [int(x) for x in f.readline().rstrip().split()[1::2]]
 

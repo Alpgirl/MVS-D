@@ -18,7 +18,7 @@
             "rescale": 0.4375,
             "vit_ch": 768,
             "out_ch": 64,
-            "model_path": "./pretrained_models/model_best.pth",
+            "model_path": "/weights/model_best.pth",
             "vit_path": "./pretrained_models/dinov2_vitb14_pretrain.pth",
             "depth_type": ["ce","ce","ce","ce"],
             "fusion_type": "cnn",
@@ -199,7 +199,7 @@
     ],
     "optimizer": {
         "args": {
-            "lr": 0.001,
+            "lr": 0.005,
             "vit_lr": 3e-05,
             "weight_decay": 0.01,
             "min_lr": 0.01,
@@ -210,7 +210,7 @@
         "epochs": 10,
         "seq": true,
         "save_dir": "saved/",
-        "save_period": 1,
+        "save_period": 2,
         "verbosity": 2,
         "logging_every": 10,
         "early_stop": 10,

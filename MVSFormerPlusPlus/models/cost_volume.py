@@ -257,8 +257,8 @@ class StageNet(nn.Module):
             # print(volume_mean.shape)
 
             if self.use_adapter:
-                volume_bnv_mean = self.adapter(volume_bnv_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
-                volume_mean += volume_bnv_mean
+                volume_mean = self.adapter(volume_bnv_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+                # volume_mean += volume_bnv_mean
 
             del points, pp, inter_pp, bnv_grid_feats
             interpolater.reset_pp_grids()
