@@ -475,7 +475,7 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         points = fusion.idx_cam2world(idx_cam, sample['ref_cam'])[..., :3, 0].permute(0, 3, 1, 2)
 
         points_np = points.cpu().data.numpy()
-        mask_np = mask.cpu().data.numpy().astype(np.bool)
+        mask_np = mask.cpu().data.numpy().astype(np.bool_)
         ref_img = sample_np['ref_img'].data.numpy()
         for i in range(points_np.shape[0]):
             print(np.sum(np.isnan(points_np[i])))
@@ -618,21 +618,21 @@ if __name__ == '__main__':
             if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
 
     # step1. save all the depth maps and the masks in outputs directory
-    save_depth(testlist, config, bnvconfig)
+    # save_depth(testlist, config, bnvconfig)
 
-    # # step2. filter saved depth maps with photometric confidence maps and geometric constraints
-    # if args.filter_method == "pcd" or args.filter_method == "dpcd":
-    #     # support multi-processing, the default number of worker is 4
-    #     pcd_filter(testlist)
+    # step2. filter saved depth maps with photometric confidence maps and geometric constraints
+    if args.filter_method == "pcd" or args.filter_method == "dpcd":
+        # support multi-processing, the default number of worker is 4
+        pcd_filter(testlist)
     
-    # elif args.filter_method == 'gipuma':
-    #     prob_threshold = args.prob_threshold
-    #     # prob_threshold = [float(p) for p in prob_threshold.split(',')]
-    #     gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
-    #                   args.fusibile_exe_path)
-    # else:
-    #     raise NotImplementedError
+    elif args.filter_method == 'gipuma':
+        prob_threshold = args.prob_threshold
+        # prob_threshold = [float(p) for p in prob_threshold.split(',')]
+        gipuma_filter(testlist, args.outdir, prob_threshold, args.disp_threshold, args.num_consistent,
+                      args.fusibile_exe_path)
+    else:
+        raise NotImplementedError
 
-    # if args.filter_method == 'gipuma':
-    #     # remove some unneeded data
-    #     rm_data(testlist, args.outdir)
+    if args.filter_method == 'gipuma':
+        # remove some unneeded data
+        rm_data(testlist, args.outdir)

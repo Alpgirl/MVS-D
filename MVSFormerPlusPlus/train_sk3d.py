@@ -226,9 +226,10 @@ def main(local_rank, args, config, bnvconfig):
     # model.load_state_dict(state_dict, strict=True)
 
     # PRINT MODEL LAYERS
-    # for i, (k, v) in enumerate(model.named_parameters()):
-    #     # if i in [437]:
-    #     print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
+    if rank == 0:
+        for i, (k, v) in enumerate(model.named_parameters()):
+            # if i in [437]:
+            print(f"{k} with shape {v.shape} requires grad {v.requires_grad}")
 
     if args.DDP: # False
         if rank == 0:

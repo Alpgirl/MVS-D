@@ -96,10 +96,10 @@ class Sk3DDataset(Dataset):
 
         if mode == 'train' or mode == 'val':
             self.light_types = [
-                                'ambient@best']
-                            # 'flash@best', 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
-                            # 'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
-                            # 'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']
+                                'ambient@best',
+                            'flash@best', 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
+                            'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
+                            'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']
         else:
             self.light_types = ['ambient@best']
         self.metas = self.build_list()
@@ -493,7 +493,7 @@ class Sk3DDataset(Dataset):
 
             # READ SENSOR depth
             if self.rgbd:
-                sensor_depth_filename = os.path.join(self.datapath, 'addons/{}/proj_depth/kinect_v2.undist@tis_right.undist/{:0>4}.png'.format(scan, vid)) #os.path.join(self.datapath, 'addons/{}/proj_depth/kinect_v2.undist@tis_right.undist/{:0>4}.png'.format(scan, vid))
+                sensor_depth_filename = os.path.join(self.datapath, 'addons/{}/proj_depth/stl.clean_rec@tis_right.undist/{:0>4}.png'.format(scan, vid)) # kinect_v2.undist
                 # read sensor depth from file
                 # depth is reshaped to pretrained NeuralFusion expected input shape
                 sensor_depth, sensor_mask = self.read_depth_and_mask(sensor_depth_filename) # already cropped to remove background

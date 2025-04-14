@@ -2,27 +2,27 @@
 #SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=120:00:00
+#SBATCH --time=20:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=4
+#SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=6
 #SBATCH --nodes=1
-#SBATCH --mem=600G
+#SBATCH --mem=100G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
 source ./wandb/fix_wandb.sh
 
 # Set the configuration filename (passed as the first argument)
-CONFIG_FILENAME="./config/mvsformer++_sk3d.json"
+# CONFIG_FILENAME="./config/mvsformer++_sk3d.json"
 BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
 
 # Set the experiment name (optional, passed as the second argument)
 if [ -z "$1" ]; then
-    EXPERIMENT_NAME="MVSD++_train_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
+    EXPERIMENT_NAME="MVSD++_test_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
 else
-    EXPERIMENT_NAME="MVSD++_train_$(date +%Y%m%d_%H%M%S)_$1"
+    EXPERIMENT_NAME="MVSD++_test_$(date +%Y%m%d_%H%M%S)_$1"
 fi
 
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))

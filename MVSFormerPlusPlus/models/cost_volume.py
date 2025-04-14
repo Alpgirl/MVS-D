@@ -150,16 +150,23 @@ class StageNet(nn.Module):
         self.args = args
         self.fusion_type = args.get('fusion_type', 'cnn')
         self.ndepth = ndepth
+        self.rgbd = args.get('rgbd', False)
         self.bnvconfig = bnvconfig
         self.stage_idx = stage_idx
         self.cost_reg_type = args.get("cost_reg_type", ["Normal", "Normal", "Normal", "Normal"])[stage_idx]
         self.depth_type = args["depth_type"]
+        self.use_adapter = args.get("use_adapter", False)
+
         if type(self.depth_type) == list:
             self.depth_type = self.depth_type[stage_idx]
 
-        in_channels = args['base_ch']
-        if type(in_channels) == list:
-            in_channels = in_channels[stage_idx]
+        if not self.use_adapter and stage_idx == 0 and self.rgbd == True:
+            in_channels = bnvconfig.model.feature_vector_size+args["feat_chs"][0]
+        else:
+            in_channels = args['base_ch']
+            if type(in_channels) == list:
+                in_channels = in_channels[stage_idx]
+        
         if self.fusion_type == 'cnn':
             self.vis = nn.Sequential(ConvBnReLU(1, 16), ConvBnReLU(16, 16), ConvBnReLU(16, 8), nn.Conv2d(8, 1, 1), nn.Sigmoid())
         else:
@@ -174,14 +181,14 @@ class StageNet(nn.Module):
                 self.cost_reg = CostRegNet3D(in_channels, in_channels)
             else:
                 self.cost_reg = CostRegNet(in_channels, in_channels)
-        self.use_adapter = args.get("use_adapter", False)
-        if self.use_adapter:
-            in_ch = bnvconfig.model.feature_vector_size+args["feat_chs"][0]
+        
+        if self.use_adapter and self.rgbd:
             out_ch = args["feat_chs"][0]
-            self.adapter = torch.nn.Linear(in_features=in_ch, out_features=out_ch)
+            in_ch_depth = bnvconfig.model.feature_vector_size+args["feat_chs"][0]
+            self.adapter = torch.nn.Linear(in_features=in_ch_depth, out_features=out_ch)
             # initialize adapter in the way that identity weight matrix corresponds to rgb feats and small random values correspond to depth feats
             self.adapter.weight.data[:, :out_ch] = torch.eye(out_ch)
-            self.adapter.weight.data[:, out_ch:] = torch.normal(mean=0.0, std=0.001, size=(out_ch, abs(in_ch - out_ch)))
+            self.adapter.weight.data[:, out_ch:] = torch.normal(mean=0.0, std=0.001, size=(out_ch, abs(in_ch_depth - out_ch)))
             self.adapter.bias.data = torch.ones(out_ch) * 1e-5
 
     def forward(self, features, proj_matrices, depth_values, depth_features, interpolater, tmp, position3d=None): #dimensions
@@ -253,15 +260,19 @@ class StageNet(nn.Module):
             bnv_grid_feats = torch.stack(inter_pp, axis=0)
             # print(bnv_grid_feats.shape)
 
-            volume_bnv_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
+            # torch.save(bnv_grid_feats.detach().cpu(), "bnvlogs/depth_feats.pt")
+            # torch.save(volume_mean.detach().cpu(), "bnvlogs/rgb_feats.pt")
+
+            volume_mean = torch.cat([volume_mean, bnv_grid_feats], dim=1) # [B, C, D, H, W]
             # print(volume_mean.shape)
 
             if self.use_adapter:
-                volume_mean = self.adapter(volume_bnv_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
+                volume_mean = self.adapter(volume_mean.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3) # [B, D, H, W, C]
                 # volume_mean += volume_bnv_mean
 
             del points, pp, inter_pp, bnv_grid_feats
             interpolater.reset_pp_grids()
+            # torch.save(volume_mean.detach().cpu(), "bnvlogs/all_feats_after_adapter.pt")
 
 
         # mesh = trimesh.Trimesh(vertices=points[0,].cpu().numpy())

@@ -39,6 +39,7 @@ class DINOv2MVSNet(nn.Module):
         self.inverse_depth = args.get('inverse_depth', False)
         self.use_pe3d = args.get('use_pe3d', False)
         self.cost_reg_type = args.get("cost_reg_type", ["Normal", "Normal", "Normal", "Normal"])
+        self.use_adapter = args.get("use_adapter", False)
 
         self.encoder = FPNEncoder(feat_chs=args['feat_chs'])
         self.decoder = FPNDecoder(feat_chs=args['feat_chs'])
@@ -82,10 +83,12 @@ class DINOv2MVSNet(nn.Module):
             print('!!!No weight in', self.vit_args['vit_path'], 'testing should neglect this.')
 
         self.fusions = nn.ModuleList([StageNet(args, bnvconfig, self.ndepths[i], i) for i in range(len(self.ndepths))])
-        for i, f in enumerate(self.fusions):
-            # Filter and load only the weights for the current module
-            module_state_dict = {k[len(f'module.fusions.{i}.'):]: v for k, v in state_dict.items() if k.startswith(f'module.fusions.{i}.')}
-            f.load_state_dict(module_state_dict, strict=False)
+
+        if self.rgbd == False or self.use_adapter == True:
+            for i, f in enumerate(self.fusions):
+                # Filter and load only the weights for the current module
+                module_state_dict = {k[len(f'module.fusions.{i}.'):]: v for k, v in state_dict.items() if k.startswith(f'module.fusions.{i}.')}
+                f.load_state_dict(module_state_dict, strict=False)
         # freeze fusion stage layers
         self.freeze_stages = args.get("freeze_stages", False)
         if self.freeze_stages:
@@ -133,7 +136,7 @@ class DINOv2MVSNet(nn.Module):
             # "weights": batch_weights,
             # "num_hits": batch_num_hits,
         }
-        print(f"Depth features are extracted for the batch of images")
+        # print(f"Depth features are extracted for the batch of images")
         del batch_act_coords, batch_features, frame
         # Extract active coords to ply
         # mesh = trimesh.Trimesh(vertices=batch_act_coords[0].detach().cpu().numpy()) # take the first ref+source views

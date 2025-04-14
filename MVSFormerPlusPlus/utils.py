@@ -445,7 +445,7 @@ def global_pcd_batch(depth_values, ref_proj):
 
     # points_c = torch.stack([X, Y, Z], dim=-1)
     points_c = torch.transpose(torch.stack([X, Y, Z], dim=-1), dim0=2, dim1=3)
-    print(f"points_c: {points_c.shape}")
+    # print(f"points_c: {points_c.shape}")
 
     # points_c = torch.matmul(intr_inv_ref, torch.transpose(points, dim0=1, dim1=2)) # [32, 3, 34400]
     points_c = torch.cat((points_c, homgens), dim=2)  # [32, 4, 34400]
