@@ -618,7 +618,7 @@ if __name__ == '__main__':
             if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
 
     # step1. save all the depth maps and the masks in outputs directory
-    # save_depth(testlist, config, bnvconfig)
+    save_depth(testlist, config, bnvconfig)
 
     # step2. filter saved depth maps with photometric confidence maps and geometric constraints
     if args.filter_method == "pcd" or args.filter_method == "dpcd":

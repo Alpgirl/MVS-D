@@ -96,7 +96,7 @@ class Sk3DDataset(Dataset):
 
         if mode == 'train' or mode == 'val':
             self.light_types = [
-                                'ambient@best',
+                                # 'ambient@best',
                             'flash@best', 'flash@fast', 'ambient@best', 'ambient_low@fast', 'hard_left_bottom_close@best',
                             'hard_left_bottom_far@best', 'hard_left_top_close@best', 'hard_left_top_far@best', 'hard_right_bottom_close@best',
                             'hard_right_top_close@best', 'hard_right_top_far@best', 'soft_left@best', 'soft_right@best', 'soft_top@best']

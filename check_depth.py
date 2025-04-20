@@ -7,7 +7,7 @@ from PIL import Image
 import numpy as np
 
 scene = "small_wooden_chessboard"
-exp_name = "orig_MVSPP" # MVSD++_train_20250314_193649
+exp_name = "MVSD++_train_20250408_032611" # MVSD++_train_20250314_193649
 vid = 4
 
 dmin = 0.473

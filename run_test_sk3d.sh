@@ -2,28 +2,24 @@
 #SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=20:00:00
+#SBATCH --time=24:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=6
+#SBATCH --cpus-per-task=4
 #SBATCH --nodes=1
-#SBATCH --mem=100G
+#SBATCH --mem=200G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
 source ./wandb/fix_wandb.sh
 
 # Set the configuration filename (passed as the first argument)
-# CONFIG_FILENAME="./config/mvsformer++_sk3d.json"
+CONFIG_FILENAME="./config/mvsformer++_test_sk3d.json"
 BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
 
 # Set the experiment name (optional, passed as the second argument)
-if [ -z "$1" ]; then
-    EXPERIMENT_NAME="MVSD++_test_$(date +%Y%m%d_%H%M%S)"  # Default experiment name with timestamp
-else
-    EXPERIMENT_NAME="MVSD++_test_$(date +%Y%m%d_%H%M%S)_$1"
-fi
+EXPERIMENT_NAME="MVSD++_train_20250408_032611"
 
 export MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))
 export MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -37,8 +33,7 @@ SINGULARITY_SHELL=/bin/bash \
 srun singularity exec --nv \
     --bind /gpfs/gpfs0/3ddl/datasets/sk3d:/sk3d/ \
     --bind /trinity/home/i.larina/MVS-D/:/app \
-    --bind /trinity/home/g.bobrovskih/ongoing/mvsw3dfeatures/MVSFormerPlusPlus/saved/models/DINOv2/MVSFormer++_20241125_213612/:/weights \
-    /trinity/home/i.larina/docker_imgs/larina_bnvmvs-zh-2025-02-25-d24ee6e6ce09.sif /bin/bash << EOF
+    /trinity/home/i.larina/docker_imgs/larina_bnvmvs-zh-fusibile-2025-04-15-d006d7d1e6b4.sif /bin/bash << EOF
 
 # Initialize Conda
 source ~/.bashrc                   # Or source ~/.bash_profile, depending on your setup
@@ -55,12 +50,24 @@ export PYTHONPATH=$PYTHONPATH:$PWD
 
 cd MVSFormerPlusPlus/
 
-# Run the training script with the specified config file and experiment name
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nnodes=1 --nproc_per_node=4 train_sk3d.py \
+# Run the testing script with the specified config file and experiment name
+CUDA_VISIBLE_DEVICES=0 python test.py \
             --config $CONFIG_FILENAME \
             --bnvconfig $BNV_CONFIG_FILENAME \
-            --exp_name $EXPERIMENT_NAME \
-            --DDP
+            --dataset sk3d \
+            --batch_size 1  \
+            --testpath /sk3d/ \
+            --testlist ./lists/sk3d/test.txt \
+            --resume ./saved/models/DINOv2/$EXPERIMENT_NAME/model_best.pth  \
+            --outdir ./saved/models/DINOv2/$EXPERIMENT_NAME/test_nv10_prob0.6/  \
+            --interval_scale 1.00 \
+            --num_view 10 \
+            --numdepth 256 \
+            --max_h 1920 --max_w 2368 \
+            --prob_threshold 0.6 \
+            --filter_method gipuma \
+            --combine_conf \
+            --tmps 5.0,5.0,5.0,1.0
 
 conda deactivate
 
