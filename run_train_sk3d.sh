@@ -2,13 +2,14 @@
 #SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=120:00:00
+#SBATCH --time=200:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=6
 #SBATCH --nodes=1
-#SBATCH --mem=600G
+#SBATCH --reservation=HPC-2455-3
+#SBATCH --mem=800G
 
 # Load WandB API key
 source ./wandb/export_wandb.sh # exports WANDB_API_KEY
@@ -17,6 +18,8 @@ source ./wandb/fix_wandb.sh
 # Set the configuration filename (passed as the first argument)
 CONFIG_FILENAME="./config/mvsformer++_sk3d.json"
 BNV_CONFIG_FILENAME="./config/bnvfusion_sk3d.json"
+
+RESUME_CHECKPOINT="./saved/models/DINOv2/MVSD++_train_20250425_181928/model_best.pth"
 
 # Set the experiment name (optional, passed as the second argument)
 if [ -z "$1" ]; then
@@ -59,6 +62,7 @@ cd MVSFormerPlusPlus/
 CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nnodes=1 --nproc_per_node=4 train_sk3d.py \
             --config $CONFIG_FILENAME \
             --bnvconfig $BNV_CONFIG_FILENAME \
+            --resume $RESUME_CHECKPOINT \
             --exp_name $EXPERIMENT_NAME \
             --DDP
 

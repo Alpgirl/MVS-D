@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name='i.larina.mvs-d.run_train_sk3d'
+#SBATCH --job-name='i.larina.mvs-d.run_test_sk3d'
 #SBATCH --output=./sbatch_logs/%x@%A_%a.out 
 #SBATCH --error=./sbatch_logs/%x@%A_%a.err
-#SBATCH --time=24:00:00
+#SBATCH --time=10:00:00
 #SBATCH --partition=ais-gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
 #SBATCH --mem=200G
 
@@ -46,7 +46,7 @@ python -m wandb login --relogin \$WANDB_API_KEY
 # Navigate to the project directory
 cd /app/
 
-export PYTHONPATH=$PYTHONPATH:$PWD
+export PYTHONPATH=$PYTHONPATH:"/app"
 
 cd MVSFormerPlusPlus/
 

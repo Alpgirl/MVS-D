@@ -159,201 +159,202 @@ class Trainer(BaseTrainer):
         pre_scale = int(self.scaler.get_scale()) if self.fp16 else None
 
         # training
-        # for dl in self.data_loader:
-        #     # if epoch == 1:
-        #     #     break
-        #     if self.rank == 0:
-        #         t_loader = tqdm(dl, desc=f"Epoch: {epoch}/{self.epochs}. Train.",
-        #                         bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', total=len(dl))
-        #     else:
-        #         t_loader = dl
-        #     for batch_idx, sample in enumerate(t_loader):
-        #         # print("INIT GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #         # print("INIT GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
-        #         num_stage = 3 if self.config['data_loader'][0]['args'].get('stage3', False) else 4
+        for dl in self.data_loader:
+            # if epoch == 1:
+            #     break
+            if self.rank == 0:
+                t_loader = tqdm(dl, desc=f"Epoch: {epoch}/{self.epochs}. Train.",
+                                bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', total=len(dl))
+            else:
+                t_loader = dl
+            for batch_idx, sample in enumerate(t_loader):
+                # print("INIT GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                # print("INIT GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                num_stage = 3 if self.config['data_loader'][0]['args'].get('stage3', False) else 4
                 
-        #         ## DEBUG
-        #         # for k, v in sample.items():
-        #         #     print(f"{k}")
-        #         #     if k == "input_pts":
-        #         #         print(len(v), len(v[0]), len(v[1]))
-        #         #     elif k == "depth":
-        #         #         print(v["stage1"].shape)
-        #         #     elif k == "scan":
-        #         #         print(v)
-        #         #     try:
-        #         #         print(v.shape)
-        #         #     except:
-        #         #         print(len(v))
+                ## DEBUG
+                # for k, v in sample.items():
+                #     print(f"{k}")
+                #     if k == "input_pts":
+                #         print(len(v), len(v[0]), len(v[1]))
+                #     elif k == "depth":
+                #         print(v["stage1"].shape)
+                #     elif k == "scan":
+                #         print(v)
+                #     try:
+                #         print(v.shape)
+                #     except:
+                #         print(len(v))
 
-        #         sample_cuda = tocuda(sample)
-        #         depth_gt_ms = sample_cuda["depth"]
-        #         mask_ms = sample_cuda["mask"]
-        #         imgs, cam_params = sample_cuda["imgs"], sample_cuda["proj_matrices"]
-        #         depth_values = sample_cuda["depth_values"]
-        #         depth_interval = depth_values[:, 1] - depth_values[:, 0]
+                sample_cuda = tocuda(sample)
+                depth_gt_ms = sample_cuda["depth"]
+                mask_ms = sample_cuda["mask"]
+                imgs, cam_params = sample_cuda["imgs"], sample_cuda["proj_matrices"]
+                depth_values = sample_cuda["depth_values"]
+                depth_interval = depth_values[:, 1] - depth_values[:, 0]
 
-        #         self.optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 
-        #         # print("SAMPLETO CUDA GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #         # print("SAMPLETO CUDA GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
-        #         # gradient accumulate
-        #         if self.multi_scale:
-        #             # if self.multi_ratio_scale_batch_map is not None:
-        #             #     ratio_idx = dl.dataset.scale2idx[tuple(imgs.shape[3:5])]
-        #             #     bs = dl.dataset.scale_batch_map[str(ratio_idx)]
-        #             # else:
-        #             bs = self.scale_batch_map[str(imgs.shape[3])]
-        #         else:
-        #             bs = imgs.shape[0]
-        #         iters_to_accumulate = imgs.shape[0] // bs
-        #         total_loss = torch.tensor(0.0, device="cuda")
-        #         total_loss_dict = collections.defaultdict(float)
+                # print("SAMPLETO CUDA GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                # print("SAMPLETO CUDA GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                # gradient accumulate
+                if self.multi_scale:
+                    # if self.multi_ratio_scale_batch_map is not None:
+                    #     ratio_idx = dl.dataset.scale2idx[tuple(imgs.shape[3:5])]
+                    #     bs = dl.dataset.scale_batch_map[str(ratio_idx)]
+                    # else:
+                    bs = self.scale_batch_map[str(imgs.shape[3])]
+                else:
+                    bs = imgs.shape[0]
+                iters_to_accumulate = imgs.shape[0] // bs
+                total_loss = torch.tensor(0.0, device="cuda")
+                total_loss_dict = collections.defaultdict(float)
 
-        #         for bi in range(iters_to_accumulate):
-        #             b_start = bi * bs
-        #             b_end = (bi + 1) * bs
-        #             cam_params_tmp = {}
-        #             depth_gt_ms_tmp = {}
-        #             mask_ms_tmp = {}
-        #             imgs_tmp = imgs[b_start:b_end]
-        #             for k in cam_params:
-        #                 cam_params_tmp[k] = cam_params[k][b_start:b_end]
-        #                 depth_gt_ms_tmp[k] = depth_gt_ms[k][b_start:b_end]
-        #                 mask_ms_tmp[k] = mask_ms[k][b_start:b_end]
+                for bi in range(iters_to_accumulate):
+                    b_start = bi * bs
+                    b_end = (bi + 1) * bs
+                    cam_params_tmp = {}
+                    depth_gt_ms_tmp = {}
+                    mask_ms_tmp = {}
+                    imgs_tmp = imgs[b_start:b_end]
+                    for k in cam_params:
+                        cam_params_tmp[k] = cam_params[k][b_start:b_end]
+                        depth_gt_ms_tmp[k] = depth_gt_ms[k][b_start:b_end]
+                        mask_ms_tmp[k] = mask_ms[k][b_start:b_end]
                     
-        #             # print("BEFORE PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #             # print("BEFORE PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
-        #             if self.rgbd:
-        #                 sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda, b_start, b_end)
-        #             else:
-        #                 sensor_data, pointnet_model, neural_map = None, None, None
+                    # print("BEFORE PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("BEFORE PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                    if self.rgbd:
+                        sensor_data, pointnet_model, neural_map = self.prepare_bnvfusion_input(sample_cuda, b_start, b_end)
+                    else:
+                        sensor_data, pointnet_model, neural_map = None, None, None
 
-        #             # print("AFTER PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #             # print("AFTER PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
-        #             if self.fp16:
-        #                 # with profiler.profile(activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], profile_memory=True, record_shapes=True) as prof:
-        #                 with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
+                    # print("AFTER PREPARE BNV GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("AFTER PREPARE BNV GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                    if self.fp16:
+                        # with profiler.profile(activities=[profiler.ProfilerActivity.CPU, profiler.ProfilerActivity.CUDA], profile_memory=True, record_shapes=True) as prof:
+                        with torch.cuda.amp.autocast(dtype=torch.bfloat16 if self.bf16 else torch.float16):
 
-        #                     outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
-        #                 # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=20))
-        #             else:
+                            outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
+                        # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=20))
+                    else:
 
-        #                 outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
+                        outputs = self.model.forward(imgs_tmp, cam_params_tmp, depth_values[b_start:b_end], sensor_data, pointnet_model, neural_map, self.dimensions)
 
-        #             # print("AFTER THE DINO MODEL GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #             # print("AFTER THE DINO MODEL GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
-        #             if type(self.depth_type) == list:
-        #                 loss_dict = get_multi_stage_losses(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp, mask_ms_tmp,
-        #                                                 depth_interval[b_start:b_end], self.inverse_depth)
-        #             else:
-        #                 loss_dict = get_loss(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp,
-        #                                     mask_ms_tmp, depth_interval[b_start:b_end], self.inverse_depth)
+                    # print("AFTER THE DINO MODEL GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("AFTER THE DINO MODEL GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                    if type(self.depth_type) == list:
+                        loss_dict = get_multi_stage_losses(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp, mask_ms_tmp,
+                                                        depth_interval[b_start:b_end], self.inverse_depth)
+                    else:
+                        loss_dict = get_loss(self.loss_arg, self.depth_type, outputs, depth_gt_ms_tmp,
+                                            mask_ms_tmp, depth_interval[b_start:b_end], self.inverse_depth)
 
-        #             loss = torch.tensor(0.0, device="cuda")
-        #             for key in loss_dict:
-        #                 loss = loss + loss_dict[key] / iters_to_accumulate
-        #                 total_loss_dict[key] = total_loss_dict[key] + loss_dict[key] / iters_to_accumulate
-        #             total_loss += loss
+                    loss = torch.tensor(0.0, device="cuda")
+                    for key in loss_dict:
+                        loss = loss + loss_dict[key] / iters_to_accumulate
+                        total_loss_dict[key] = total_loss_dict[key] + loss_dict[key] / iters_to_accumulate
+                    total_loss += loss
 
-        #             if self.fp16:
-        #                 self.scaler.scale(loss * self.loss_downscale).backward()
-        #             else:
-        #                 (loss * self.loss_downscale).backward()
+                    if self.fp16:
+                        self.scaler.scale(loss * self.loss_downscale).backward()
+                    else:
+                        (loss * self.loss_downscale).backward()
 
-        #         del sensor_data, pointnet_model, neural_map
+                del sensor_data, pointnet_model, neural_map
                 
-        #         if self.debug:
-        #             # DEBUG:scaled grad
-        #             with torch.no_grad():
-        #                 for group in self.optimizer.param_groups:
-        #                     for param in group["params"]:
-        #                         if param.grad is None:
-        #                             continue
-        #                         if param.grad.is_sparse:
-        #                             if param.grad.dtype is torch.float16:
-        #                                 param.grad = param.grad.coalesce()
-        #                             to_unscale = param.grad._values()
-        #                         else:
-        #                             to_unscale = param.grad
-        #                         v = to_unscale.clone().abs().max()
-        #                         if torch.isinf(v) or torch.isnan(v):
-        #                             print('Rank', str(self.rank) + ':', 'INF in', group['layer_name'], 'of step',
-        #                                 global_step, '!!!')
-        #                         scaled_grads[group['layer_name']].append(v.item() / self.scaler.get_scale())
+                if self.debug:
+                    # DEBUG:scaled grad
+                    with torch.no_grad():
+                        for group in self.optimizer.param_groups:
+                            for param in group["params"]:
+                                if param.grad is None:
+                                    continue
+                                if param.grad.is_sparse:
+                                    if param.grad.dtype is torch.float16:
+                                        param.grad = param.grad.coalesce()
+                                    to_unscale = param.grad._values()
+                                else:
+                                    to_unscale = param.grad
+                                v = to_unscale.clone().abs().max()
+                                if torch.isinf(v) or torch.isnan(v):
+                                    print('Rank', str(self.rank) + ':', 'INF in', group['layer_name'], 'of step',
+                                        global_step, '!!!')
+                                scaled_grads[group['layer_name']].append(v.item() / self.scaler.get_scale())
 
-        #         if self.grad_norm is not None:
-        #             if self.fp16:
-        #                 self.scaler.unscale_(self.optimizer)
-        #             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm, error_if_nonfinite=False)
+                if self.grad_norm is not None:
+                    if self.fp16:
+                        self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm, error_if_nonfinite=False)
 
-        #         if self.fp16:
-        #             self.scaler.step(self.optimizer)
-        #             self.scaler.update()
-        #             new_scale = int(self.scaler.get_scale())
-        #             if new_scale == pre_scale:  # 只有scale不变表示优化进行了
-        #                 self.lr_scheduler.step()
-        #             pre_scale = new_scale
-        #         else:
-        #             self.optimizer.step()
-        #             self.lr_scheduler.step()
-        #         global_step = (epoch - 1) * len(dl) + batch_idx
-        #         self.wandb_global_step = global_step
+                if self.fp16:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    new_scale = int(self.scaler.get_scale())
+                    if new_scale == pre_scale:  # 只有scale不变表示优化进行了
+                        self.lr_scheduler.step()
+                    pre_scale = new_scale
+                else:
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                global_step = (epoch - 1) * len(dl) + batch_idx
+                self.wandb_global_step = global_step
 
-        #         # forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1000.0 ** 2)
-        #         # print(f"imgs shape:{imgs.shape},, iters_to_accumulate:{iters_to_accumulate}, max_mem: {forward_max_memory_allocated}")
+                # forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1000.0 ** 2)
+                # print(f"imgs shape:{imgs.shape},, iters_to_accumulate:{iters_to_accumulate}, max_mem: {forward_max_memory_allocated}")
 
 
-        #         # no_grad_param = []
-        #         # for name,param in self.model.named_parameters():
-        #         #     if param.grad is None:
-        #         #         no_grad_param.append(name)
-        #         # xx = [n for n, p in self.model.named_parameters() if n.startswith("vit.")]
-        #         # not_in_no_grad_param = [k for k in xx if k not in no_grad_param]
-        #         # not_in_vit = [k for k in no_grad_param if k not in xx]
-        #         # pdb.set_trace()
+                # no_grad_param = []
+                # for name,param in self.model.named_parameters():
+                #     if param.grad is None:
+                #         no_grad_param.append(name)
+                # xx = [n for n, p in self.model.named_parameters() if n.startswith("vit.")]
+                # not_in_no_grad_param = [k for k in xx if k not in no_grad_param]
+                # not_in_vit = [k for k in no_grad_param if k not in xx]
+                # pdb.set_trace()
 
-        #         if self.rank == 0:
-        #             desc = f"Epoch: {epoch}/{self.epochs}. " \
-        #                 f"Train. " \
-        #                 f"Scale:({imgs.shape[-2]}x{imgs.shape[-1]}), " \
-        #                 f"Loss: {'%.2f' % total_loss.item()}"
-        #             # FIXME:Temp codes
-        #             if "stage4_uncertainty" in loss_dict:
-        #                 desc += f", VarLoss: {'%.2f' % loss_dict['stage4_uncertainty'].item()}"
+                if self.rank == 0:
+                    desc = f"Epoch: {epoch}/{self.epochs}. " \
+                        f"Train. " \
+                        f"Scale:({imgs.shape[-2]}x{imgs.shape[-1]}), " \
+                        f"Loss: {'%.2f' % total_loss.item()}"
+                    # FIXME:Temp codes
+                    if "stage4_uncertainty" in loss_dict:
+                        desc += f", VarLoss: {'%.2f' % loss_dict['stage4_uncertainty'].item()}"
 
-        #             if self.fp16:
-        #                 desc += ', scale={:d}'.format(int(self.scaler.get_scale()))
-        #             t_loader.set_description(desc)
-        #             t_loader.refresh()
+                    if self.fp16:
+                        desc += ', scale={:d}'.format(int(self.scaler.get_scale()))
+                    t_loader.set_description(desc)
+                    t_loader.refresh()
 
-        #         if self.debug and batch_idx % 50 == 0 and self.rank == 0:
-        #             scaled_grads_dict = {}
-        #             for k in scaled_grads:
-        #                 scaled_grads_dict[k] = np.max(scaled_grads[k])
-        #             save_scalars(self.writer, 'grads', scaled_grads_dict, self.wandb_global_step)
-        #             scaled_grads = collections.defaultdict(list)
+                if self.debug and batch_idx % 50 == 0 and self.rank == 0:
+                    scaled_grads_dict = {}
+                    for k in scaled_grads:
+                        scaled_grads_dict[k] = np.max(scaled_grads[k])
+                    save_scalars(self.writer, 'grads', scaled_grads_dict, self.wandb_global_step)
+                    scaled_grads = collections.defaultdict(list)
 
-        #         if batch_idx % self.log_step == 0 and self.rank == 0:
-        #             scalar_outputs = {"loss": total_loss.item()}
-        #             for key in total_loss_dict:
-        #                 scalar_outputs['loss_' + key] = loss_dict[key].item()
-        #             sample_i = 0 # reference image
-        #             image_outputs = {"pred_depth": outputs['refined_depth'][sample_i] * mask_ms_tmp[f'stage{num_stage}'][sample_i],
-        #                             "pred_depth_nomask": outputs['refined_depth'][sample_i],
-        #                             "conf": outputs['photometric_confidence'][sample_i], 'depth_interval': sample_cuda['depth_interval'][sample_i],
-        #                             "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'][sample_i], "ref_img": imgs_tmp[sample_i, 0],
-        #                             "depths_max": sample_cuda["depths_max"][sample_i], "depths_min": sample_cuda["depths_min"][sample_i]}
-        #             if self.fp16:
-        #                 scalar_outputs['loss_scale'] = float(self.scaler.get_scale())
-        #             for i, lr_value in enumerate(self.lr_scheduler.get_last_lr()):
-        #                 scalar_outputs[f'lr_{i}'] = lr_value
-        #             save_scalars(self.writer, 'train', scalar_outputs, self.wandb_global_step)
-        #             save_images(self.writer, 'train', image_outputs, self.wandb_global_step)
-        #             del scalar_outputs, image_outputs
+                if batch_idx % self.log_step == 0 and self.rank == 0:
+                    scalar_outputs = {"loss": total_loss.item()}
+                    for key in total_loss_dict:
+                        scalar_outputs['loss_' + key] = loss_dict[key].item()
+                    sample_i = 0 # reference image
+                    image_outputs = {"pred_depth": outputs['refined_depth'][sample_i] * mask_ms_tmp[f'stage{num_stage}'][sample_i],
+                                    "pred_depth_nomask": outputs['refined_depth'][sample_i],
+                                    "conf": outputs['photometric_confidence'][sample_i], 'depth_interval': sample_cuda['depth_interval'][sample_i],
+                                    "gt_depth": depth_gt_ms_tmp[f'stage{num_stage}'][sample_i], "ref_img": imgs_tmp[sample_i, 0],
+                                    "depths_max": sample_cuda["depths_max"][sample_i], "depths_min": sample_cuda["depths_min"][sample_i]}
+                    if self.fp16:
+                        scalar_outputs['loss_scale'] = float(self.scaler.get_scale())
+                    for i, lr_value in enumerate(self.lr_scheduler.get_last_lr()):
+                        scalar_outputs[f'lr_{i}'] = lr_value
+                    save_scalars(self.writer, 'train', scalar_outputs, self.wandb_global_step)
+                    save_images(self.writer, 'train', image_outputs, self.wandb_global_step)
+                    del scalar_outputs, image_outputs
 
-        #             # print("1 BATCH GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
-        #             # print("1 BATCH GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+                    # print("1 BATCH GPU MEMORY USAGE:", torch.cuda.memory_allocated()/1e9)  # Current GPU memory usage
+                    # print("1 BATCH GPU MEMORY RESERVED:", torch.cuda.memory_reserved()/1e9)  # Total GPU memory reserved
+        
         val_metrics = self._valid_epoch(epoch)
 
         if self.ddp:
